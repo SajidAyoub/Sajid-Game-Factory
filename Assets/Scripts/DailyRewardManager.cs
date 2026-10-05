@@ -5,17 +5,35 @@ using UnityEngine;
 public class DailyRewardManager : MonoBehaviour
 {
     private const string LastClaimDateKey = "Runner.DailyReward.LastClaimUtcDate";
+    private const string LastSeenUtcKey = "Runner.DailyReward.LastSeenUtc";
     private const string DateFormat = "yyyy-MM-dd";
+    private const float ClockSaveInterval = 60f;
 
     [SerializeField] private RewardManager rewardManager;
     [SerializeField, Min(1)] private int dailyRewardAmount = 10;
 
+    private Func<DateTime> utcTimeProvider = () => DateTime.UtcNow;
     private bool claiming;
     private bool? lastAvailability;
     private float nextAvailabilityCheck;
+    private float nextClockSave;
+    private bool warnedAboutInvalidData;
 
     public event Action<int> DailyRewardClaimed;
     public event Action<bool> AvailabilityChanged;
+
+    // Local protection only: PlayerPrefs and the device clock can be tampered with.
+    // A future trusted time service can inject UTC without changing claim logic.
+    public void SetUtcTimeProvider(Func<DateTime> provider)
+    {
+        if (provider == null)
+        {
+            throw new ArgumentNullException(nameof(provider));
+        }
+
+        utcTimeProvider = provider;
+        RefreshAvailability();
+    }
 
     private void OnEnable()
     {
@@ -23,9 +41,22 @@ public class DailyRewardManager : MonoBehaviour
         RefreshAvailability();
     }
 
+    private void OnDisable()
+    {
+        // Flush the latest observed time across normal scene changes and shutdown.
+        PlayerPrefs.Save();
+    }
+
+    private void OnApplicationPause(bool paused)
+    {
+        if (paused)
+        {
+            PlayerPrefs.Save();
+        }
+    }
+
     private void Update()
     {
-        // Unscaled polling keeps availability current while gameplay is paused.
         if (Time.unscaledTime >= nextAvailabilityCheck)
         {
             RefreshAvailability();
@@ -34,61 +65,63 @@ public class DailyRewardManager : MonoBehaviour
 
     public bool CanClaimDailyReward()
     {
-        if (claiming || !TryGetLastClaimDate(out DateTime? lastClaimDate))
+        return TryPrepareClaim(out _);
+    }
+
+    private bool TryPrepareClaim(out DateTime now)
+    {
+        now = default(DateTime);
+        if (claiming || !TryObserveUtcNow(out now) ||
+            !TryGetLastClaimDate(out DateTime? lastClaimDate))
         {
             return false;
         }
 
-        // A future saved date also blocks claims if the device clock moves backward.
-        return !lastClaimDate.HasValue || DateTime.UtcNow.Date > lastClaimDate.Value;
+        return rewardManager != null && dailyRewardAmount > 0 &&
+            dailyRewardAmount <= int.MaxValue - rewardManager.GetRewardBalance() &&
+            (!lastClaimDate.HasValue || now.Date > lastClaimDate.Value);
     }
 
     public bool ClaimDailyReward()
     {
-        if (!CanClaimDailyReward() || rewardManager == null || dailyRewardAmount <= 0)
+        // Capture one sample, including when a claim crosses UTC midnight.
+        if (!TryPrepareClaim(out DateTime now))
         {
             return false;
         }
 
-        if (dailyRewardAmount > int.MaxValue - rewardManager.GetRewardBalance())
-        {
-            return false;
-        }
-
-        string previousDate = PlayerPrefs.GetString(LastClaimDateKey, string.Empty);
         claiming = true;
         try
         {
-            // Persist before reward events so reentrant calls cannot claim twice.
-            PlayerPrefs.SetString(LastClaimDateKey,
-                DateTime.UtcNow.ToString(DateFormat, CultureInfo.InvariantCulture));
-            PlayerPrefs.Save();
-
-            if (!rewardManager.AddRewards(dailyRewardAmount))
+            string claimDate = now.ToString(DateFormat, CultureInfo.InvariantCulture);
+            bool added = rewardManager.AddRewardsWithPersistence(dailyRewardAmount,
+                () => PlayerPrefs.SetString(LastClaimDateKey, claimDate));
+            if (!added)
             {
-                RestoreLastClaimDate(previousDate);
                 return false;
             }
+
+            InvokeSafely(DailyRewardClaimed, dailyRewardAmount);
+            return true;
         }
         finally
         {
             claiming = false;
             RefreshAvailability();
         }
-
-        DailyRewardClaimed?.Invoke(dailyRewardAmount);
-        return true;
     }
 
     public TimeSpan GetTimeUntilNextClaim()
     {
-        if (!TryGetLastClaimDate(out DateTime? lastClaimDate))
+        if (claiming || !TryObserveUtcNow(out DateTime now) ||
+            !TryGetLastClaimDate(out DateTime? lastClaimDate) ||
+            rewardManager == null || dailyRewardAmount <= 0 ||
+            dailyRewardAmount > int.MaxValue - rewardManager.GetRewardBalance())
         {
-            // Invalid saved data must not grant another claim.
+            // Unknown/blocked eligibility must not be displayed as ready.
             return TimeSpan.MaxValue;
         }
 
-        DateTime now = DateTime.UtcNow;
         if (!lastClaimDate.HasValue || now.Date > lastClaimDate.Value)
         {
             return TimeSpan.Zero;
@@ -102,18 +135,66 @@ public class DailyRewardManager : MonoBehaviour
         return lastClaimDate.Value.AddDays(1) - now;
     }
 
-    private static bool TryGetLastClaimDate(out DateTime? lastClaimDate)
+    private bool TryObserveUtcNow(out DateTime now)
     {
-        string savedDate = PlayerPrefs.GetString(LastClaimDateKey, string.Empty);
+        now = default(DateTime);
+        try
+        {
+            now = utcTimeProvider();
+        }
+        catch (Exception exception)
+        {
+            Debug.LogException(exception, this);
+            return false;
+        }
+
+        if (now.Kind != DateTimeKind.Utc)
+        {
+            WarnInvalidData();
+            return false;
+        }
+
+        if (PlayerPrefs.HasKey(LastSeenUtcKey))
+        {
+            string savedTime = PlayerPrefs.GetString(LastSeenUtcKey, string.Empty);
+            if (!DateTime.TryParseExact(savedTime, "O", CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind, out DateTime lastSeen) ||
+                lastSeen.Kind != DateTimeKind.Utc)
+            {
+                WarnInvalidData();
+                return false;
+            }
+
+            if (now < lastSeen)
+            {
+                return false;
+            }
+        }
+
+        // Never replace the high-water mark with an earlier clock reading.
+        PlayerPrefs.SetString(LastSeenUtcKey, now.ToString("O", CultureInfo.InvariantCulture));
+        if (Time.unscaledTime >= nextClockSave)
+        {
+            PlayerPrefs.Save();
+            nextClockSave = Time.unscaledTime + ClockSaveInterval;
+        }
+
+        return true;
+    }
+
+    private bool TryGetLastClaimDate(out DateTime? lastClaimDate)
+    {
         lastClaimDate = null;
-        if (string.IsNullOrEmpty(savedDate))
+        if (!PlayerPrefs.HasKey(LastClaimDateKey))
         {
             return true;
         }
 
+        string savedDate = PlayerPrefs.GetString(LastClaimDateKey, string.Empty);
         if (!DateTime.TryParseExact(savedDate, DateFormat, CultureInfo.InvariantCulture,
             DateTimeStyles.None, out DateTime parsedDate))
         {
+            WarnInvalidData();
             return false;
         }
 
@@ -121,18 +202,13 @@ public class DailyRewardManager : MonoBehaviour
         return true;
     }
 
-    private static void RestoreLastClaimDate(string previousDate)
+    private void WarnInvalidData()
     {
-        if (string.IsNullOrEmpty(previousDate))
+        if (!warnedAboutInvalidData)
         {
-            PlayerPrefs.DeleteKey(LastClaimDateKey);
+            warnedAboutInvalidData = true;
+            Debug.LogWarning("Invalid daily reward date/time data; claims are blocked.", this);
         }
-        else
-        {
-            PlayerPrefs.SetString(LastClaimDateKey, previousDate);
-        }
-
-        PlayerPrefs.Save();
     }
 
     private void RefreshAvailability()
@@ -142,7 +218,27 @@ public class DailyRewardManager : MonoBehaviour
         if (lastAvailability != available)
         {
             lastAvailability = available;
-            AvailabilityChanged?.Invoke(available);
+            InvokeSafely(AvailabilityChanged, available);
+        }
+    }
+
+    private void InvokeSafely<T>(Action<T> listeners, T value)
+    {
+        if (listeners == null)
+        {
+            return;
+        }
+
+        foreach (Action<T> listener in listeners.GetInvocationList())
+        {
+            try
+            {
+                listener(value);
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception, this);
+            }
         }
     }
 }
