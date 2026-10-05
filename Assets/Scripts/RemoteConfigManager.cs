@@ -11,6 +11,7 @@ public interface IRemoteConfigProvider
 
 // Local defaults only; no remote service, SDK or network implementation is installed.
 // Overrides are limited to this known schema and never applied to gameplay automatically.
+[DisallowMultipleComponent]
 public class RemoteConfigManager : MonoBehaviour
 {
     public const string ForwardSpeedKey = "player_forward_speed";
@@ -24,15 +25,15 @@ public class RemoteConfigManager : MonoBehaviour
     public const string DifficultyKey = "difficulty_multiplier";
     public const string ConfigLabelKey = "config_label";
 
-    [SerializeField, Range(0.1f, 100f)] private float forwardSpeed = 8f;
-    [SerializeField, Range(0.1f, 100f)] private float horizontalSpeed = 5f;
-    [SerializeField, Range(1, 1000000)] private int dailyRewardAmount = 10;
-    [SerializeField, Range(1, 100)] private int interstitialFrequency = 3;
-    [SerializeField, Range(0f, 3600f)] private float interstitialCooldown = 60f;
-    [SerializeField, Range(1, 1000000)] private int rewardedAdRewardAmount = 10;
+    [SerializeField, UnityEngine.Range(0.1f, 100f)] private float forwardSpeed = 8f;
+    [SerializeField, UnityEngine.Range(0.1f, 100f)] private float horizontalSpeed = 5f;
+    [SerializeField, UnityEngine.Range(1, 1000000)] private int dailyRewardAmount = 10;
+    [SerializeField, UnityEngine.Range(1, 100)] private int interstitialFrequency = 3;
+    [SerializeField, UnityEngine.Range(0f, 3600f)] private float interstitialCooldown = 60f;
+    [SerializeField, UnityEngine.Range(1, 1000000)] private int rewardedAdRewardAmount = 10;
     [SerializeField] private bool defaultMusicEnabled = true;
     [SerializeField] private bool defaultSfxEnabled = true;
-    [SerializeField, Range(0.1f, 10f)] private float difficultyMultiplier = 1f;
+    [SerializeField, UnityEngine.Range(0.1f, 10f)] private float difficultyMultiplier = 1f;
     [SerializeField] private string configLabel = "local";
 
     private Dictionary<string, object> values;

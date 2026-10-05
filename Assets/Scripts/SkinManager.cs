@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 
+[DisallowMultipleComponent]
 public class SkinManager : MonoBehaviour
 {
     private const string SelectedSkinKey = "Runner.Skins.Selected";

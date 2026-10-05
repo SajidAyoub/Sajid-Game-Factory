@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 
+[DisallowMultipleComponent]
 public class RewardManager : MonoBehaviour
 {
     private const string RewardBalanceKey = "Runner.RewardBalance";

@@ -1,5 +1,6 @@
 using UnityEngine;
 
+[DisallowMultipleComponent]
 public class FinishLine : MonoBehaviour
 {
     [SerializeField] private LevelManager levelManager;
@@ -8,7 +9,8 @@ public class FinishLine : MonoBehaviour
 
     private void OnTriggerEnter(Collider other)
     {
-        if (completed || other.GetComponentInParent<PlayerController>() == null)
+        PlayerController player = other != null ? other.GetComponentInParent<PlayerController>() : null;
+        if (completed || player == null || !player.isActiveAndEnabled)
         {
             return;
         }

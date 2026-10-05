@@ -1,5 +1,6 @@
 using UnityEngine;
 
+[DisallowMultipleComponent]
 public class AudioManager : MonoBehaviour
 {
     [SerializeField] private SaveManager saveManager;
@@ -71,7 +72,8 @@ public class AudioManager : MonoBehaviour
     public void PlaySFX(AudioClip clip, float volumeScale = 1f)
     {
         Initialize();
-        if (!sfxEnabled || sfxSource == null || sfxSource == musicSource || clip == null)
+        if (!sfxEnabled || sfxSource == null || sfxSource == musicSource || clip == null ||
+            float.IsNaN(volumeScale) || float.IsInfinity(volumeScale))
         {
             return;
         }

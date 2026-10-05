@@ -1,5 +1,6 @@
 using UnityEngine;
 
+[DisallowMultipleComponent]
 public class CameraFollow : MonoBehaviour
 {
     [SerializeField] private Transform target;
@@ -16,7 +17,9 @@ public class CameraFollow : MonoBehaviour
         }
 
         Vector3 desiredPosition = target.position + offset;
-        float blend = 1f - Mathf.Exp(-smoothSpeed * Time.deltaTime);
+        float safeSpeed = float.IsNaN(smoothSpeed) || float.IsInfinity(smoothSpeed)
+            ? 0f : Mathf.Max(0f, smoothSpeed);
+        float blend = 1f - Mathf.Exp(-safeSpeed * Time.deltaTime);
         transform.position = Vector3.Lerp(transform.position, desiredPosition, blend);
 
         if (lookAtTarget)

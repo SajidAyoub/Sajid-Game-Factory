@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
+[DisallowMultipleComponent]
 public class MissionManager : MonoBehaviour
 {
     // Local prototype data, not secure against editing/deletion. Never reuse mission IDs.

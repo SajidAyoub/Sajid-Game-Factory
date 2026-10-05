@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 
+[DisallowMultipleComponent]
 public class ScoreManager : MonoBehaviour
 {
     private int currentScore;
@@ -16,13 +17,13 @@ public class ScoreManager : MonoBehaviour
 
         // Saturate rather than overflow during long runs.
         currentScore += Math.Min(amount, int.MaxValue - currentScore);
-        ScoreChanged?.Invoke(currentScore);
+        GameFactoryEvents.Raise(ScoreChanged, currentScore, this);
     }
 
     public void ResetScore()
     {
         currentScore = 0;
-        ScoreChanged?.Invoke(currentScore);
+        GameFactoryEvents.Raise(ScoreChanged, currentScore, this);
     }
 
     public int GetScore()

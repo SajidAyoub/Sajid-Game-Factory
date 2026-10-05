@@ -12,13 +12,14 @@ public interface IAdProvider
 }
 
 // No real ad SDK. Disabled by default; mock ads require an explicit test completion.
+[DisallowMultipleComponent]
 public class AdsManager : MonoBehaviour
 {
     [SerializeField] private AnalyticsManager analyticsManager;
     [SerializeField] private bool enableMockAds;
-    [SerializeField, Range(0f, 3600f)] private float interstitialCooldown = 60f;
-    [SerializeField, Range(0, 1000)] private int maxInterstitialsPerSession = 10;
-    [SerializeField, Range(5f, 600f)] private float requestTimeoutSeconds = 120f;
+    [SerializeField, UnityEngine.Range(0f, 3600f)] private float interstitialCooldown = 60f;
+    [SerializeField, UnityEngine.Range(0, 1000)] private int maxInterstitialsPerSession = 10;
+    [SerializeField, UnityEngine.Range(5f, 600f)] private float requestTimeoutSeconds = 120f;
 
     private class Request
     {
@@ -67,12 +68,18 @@ public class AdsManager : MonoBehaviour
     public bool CompleteMockAd(bool successful = true)
     {
         if (active == null || !active.mock) return false;
+        if (!enableMockAds || !isActiveAndEnabled || provider != null)
+        {
+            Fail(active, "mock_disabled");
+            return false;
+        }
         Complete(active, successful);
         return true;
     }
 
     private void Update()
     {
+        if (active != null && active.mock && !enableMockAds) Fail(active, "mock_disabled");
         if (active != null && Time.realtimeSinceStartupAsDouble >= active.deadline) Fail(active, "timeout");
     }
 
@@ -113,9 +120,16 @@ public class AdsManager : MonoBehaviour
             return false;
         }
         if (analyticsManager != null) analyticsManager.TrackAdRequested(type.ToString().ToLowerInvariant(), placement);
+        IAdProvider selectedProvider = provider;
         if (!IsReady(type))
         {
             ReportFailure(type, placement, "not_ready_or_disabled");
+            return false;
+        }
+        // Readiness is external code and may disable this manager or replace its provider.
+        if (!isActiveAndEnabled || !ReferenceEquals(selectedProvider, provider))
+        {
+            ReportFailure(type, placement, "provider_or_manager_changed");
             return false;
         }
 

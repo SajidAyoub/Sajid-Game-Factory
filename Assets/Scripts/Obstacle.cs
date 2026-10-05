@@ -1,5 +1,6 @@
 using UnityEngine;
 
+[DisallowMultipleComponent]
 public class Obstacle : MonoBehaviour
 {
     [SerializeField] private GameManager gameManager;
@@ -11,12 +12,13 @@ public class Obstacle : MonoBehaviour
 
     private void OnCollisionEnter(Collision collision)
     {
-        HandleContact(collision.collider);
+        if (collision != null) HandleContact(collision.collider);
     }
 
     private void HandleContact(Collider other)
     {
-        if (other.GetComponentInParent<PlayerController>() == null)
+        PlayerController player = other != null ? other.GetComponentInParent<PlayerController>() : null;
+        if (player == null || !player.isActiveAndEnabled)
         {
             return;
         }

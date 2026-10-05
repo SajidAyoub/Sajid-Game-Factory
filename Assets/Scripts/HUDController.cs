@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.UI;
 
+[DisallowMultipleComponent]
 public class HUDController : MonoBehaviour
 {
     [SerializeField] private Text scoreText;
@@ -35,7 +36,7 @@ public class HUDController : MonoBehaviour
         UpdateText(coinCountText, coinCountTextUpdated, count);
     }
 
-    private static void UpdateText(Text text, UnityEvent<string> updated, int value)
+    private void UpdateText(Text text, UnityEvent<string> updated, int value)
     {
         string displayValue = value.ToString();
         if (text != null)
@@ -43,6 +44,8 @@ public class HUDController : MonoBehaviour
             text.text = displayValue;
         }
 
-        updated?.Invoke(displayValue);
+        // UnityEvent does not expose all runtime listeners for individual isolation.
+        try { updated?.Invoke(displayValue); }
+        catch (System.Exception exception) { Debug.LogException(exception, this); }
     }
 }

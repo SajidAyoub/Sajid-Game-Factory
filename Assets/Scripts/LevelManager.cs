@@ -2,11 +2,15 @@ using System;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
+[DisallowMultipleComponent]
 public class LevelManager : MonoBehaviour
 {
     [SerializeField] private GameManager gameManager;
+    [SerializeField] private PauseManager pauseManager;
 
     private int currentLevelIndex;
+    private GameManager subscribedGameManager;
+    private bool loadingScene;
 
     public event Action<int> CurrentLevelCompleted;
 
@@ -17,18 +21,21 @@ public class LevelManager : MonoBehaviour
 
     private void OnEnable()
     {
-        if (gameManager != null)
+        if (subscribedGameManager != null)
         {
-            gameManager.LevelCompleted += HandleLevelCompleted;
+            subscribedGameManager.LevelCompleted -= HandleLevelCompleted;
         }
+        subscribedGameManager = gameManager;
+        if (subscribedGameManager != null) subscribedGameManager.LevelCompleted += HandleLevelCompleted;
     }
 
     private void OnDisable()
     {
-        if (gameManager != null)
+        if (subscribedGameManager != null)
         {
-            gameManager.LevelCompleted -= HandleLevelCompleted;
+            subscribedGameManager.LevelCompleted -= HandleLevelCompleted;
         }
+        subscribedGameManager = null;
     }
 
     public bool CompleteCurrentLevel()
@@ -56,9 +63,9 @@ public class LevelManager : MonoBehaviour
             return;
         }
 
-        if (currentLevelIndex < 0)
+        if (currentLevelIndex < 0 || currentLevelIndex >= SceneManager.sceneCountInBuildSettings - 1)
         {
-            Debug.LogWarning("Add the current level to the build scene list.", this);
+            Debug.LogWarning("No next level is available in the build scene list.", this);
             return;
         }
 
@@ -77,17 +84,28 @@ public class LevelManager : MonoBehaviour
 
     private void HandleLevelCompleted()
     {
-        CurrentLevelCompleted?.Invoke(currentLevelIndex);
+        GameFactoryEvents.Raise(CurrentLevelCompleted, currentLevelIndex, this);
     }
 
     private void LoadLevel(int buildIndex)
     {
+        if (loadingScene) return;
         if (buildIndex < 0 || buildIndex >= SceneManager.sceneCountInBuildSettings)
         {
             Debug.LogWarning("The requested level is not in the build scene list.", this);
             return;
         }
 
-        SceneManager.LoadScene(buildIndex);
+        loadingScene = true;
+        try
+        {
+            if (pauseManager != null) pauseManager.ResumeGame();
+            SceneManager.LoadScene(buildIndex);
+        }
+        catch (Exception exception)
+        {
+            loadingScene = false;
+            Debug.LogException(exception, this);
+        }
     }
 }

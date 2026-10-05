@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using UnityEngine;
 
+[DisallowMultipleComponent]
 public class DailyRewardManager : MonoBehaviour
 {
     private const string LastClaimDateKey = "Runner.DailyReward.LastClaimUtcDate";
@@ -44,14 +45,14 @@ public class DailyRewardManager : MonoBehaviour
     private void OnDisable()
     {
         // Flush the latest observed time across normal scene changes and shutdown.
-        PlayerPrefs.Save();
+        FlushClockSafely();
     }
 
     private void OnApplicationPause(bool paused)
     {
         if (paused)
         {
-            PlayerPrefs.Save();
+            FlushClockSafely();
         }
     }
 
@@ -104,6 +105,12 @@ public class DailyRewardManager : MonoBehaviour
             InvokeSafely(DailyRewardClaimed, dailyRewardAmount);
             return true;
         }
+        catch (Exception exception)
+        {
+            // A failed local write is not permission to clear a staged claim date.
+            Debug.LogException(exception, this);
+            return false;
+        }
         finally
         {
             claiming = false;
@@ -136,6 +143,17 @@ public class DailyRewardManager : MonoBehaviour
     }
 
     private bool TryObserveUtcNow(out DateTime now)
+    {
+        now = default(DateTime);
+        try { return ObserveUtcNow(out now); }
+        catch (Exception exception)
+        {
+            Debug.LogException(exception, this);
+            return false;
+        }
+    }
+
+    private bool ObserveUtcNow(out DateTime now)
     {
         now = default(DateTime);
         try
@@ -209,6 +227,12 @@ public class DailyRewardManager : MonoBehaviour
             warnedAboutInvalidData = true;
             Debug.LogWarning("Invalid daily reward date/time data; claims are blocked.", this);
         }
+    }
+
+    private void FlushClockSafely()
+    {
+        try { PlayerPrefs.Save(); }
+        catch (Exception exception) { Debug.LogException(exception, this); }
     }
 
     private void RefreshAvailability()

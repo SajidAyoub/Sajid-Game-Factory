@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 
+[DisallowMultipleComponent]
 public class SettingsManager : MonoBehaviour
 {
     [SerializeField] private SaveManager saveManager;
@@ -19,6 +20,16 @@ public class SettingsManager : MonoBehaviour
     private void Awake()
     {
         Initialize();
+    }
+
+    // Call after SaveManager.ResetData or an explicit external save reload.
+    public void ReloadSettings()
+    {
+        initialized = false;
+        Initialize();
+        GameFactoryEvents.Raise(MusicEnabledChanged, MusicEnabled, this);
+        GameFactoryEvents.Raise(SFXEnabledChanged, SFXEnabled, this);
+        GameFactoryEvents.Raise(VibrationEnabledChanged, VibrationEnabled, this);
     }
 
     private void Initialize()
@@ -62,7 +73,7 @@ public class SettingsManager : MonoBehaviour
             audioManager.SetMusicEnabled(enabled);
         }
 
-        MusicEnabledChanged?.Invoke(enabled);
+        GameFactoryEvents.Raise(MusicEnabledChanged, enabled, this);
     }
 
     public void SetSFXEnabled(bool enabled)
@@ -79,7 +90,7 @@ public class SettingsManager : MonoBehaviour
             audioManager.SetSFXEnabled(enabled);
         }
 
-        SFXEnabledChanged?.Invoke(enabled);
+        GameFactoryEvents.Raise(SFXEnabledChanged, enabled, this);
     }
 
     public void SetVibrationEnabled(bool enabled)
@@ -91,7 +102,7 @@ public class SettingsManager : MonoBehaviour
             saveManager.SetVibrationEnabled(enabled);
         }
 
-        VibrationEnabledChanged?.Invoke(enabled);
+        GameFactoryEvents.Raise(VibrationEnabledChanged, enabled, this);
     }
 
     public void ToggleMusic()

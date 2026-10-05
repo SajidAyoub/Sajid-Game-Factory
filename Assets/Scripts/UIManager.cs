@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 
+[DisallowMultipleComponent]
 public class UIManager : MonoBehaviour
 {
     public enum UIState
@@ -46,19 +47,25 @@ public class UIManager : MonoBehaviour
 
     private void ShowState(UIState state)
     {
+        if (!Enum.IsDefined(typeof(UIState), state))
+        {
+            Debug.LogWarning("Invalid UI state; showing the main menu.", this);
+            state = UIState.MainMenu;
+        }
         GameObject activePanel = GetPanel(state);
         stateSelected = true;
-        SetPanelActive(mainMenuPanel, mainMenuPanel == activePanel);
-        SetPanelActive(gameplayHUDPanel, gameplayHUDPanel == activePanel);
-        SetPanelActive(pauseMenuPanel, pauseMenuPanel == activePanel);
-        SetPanelActive(gameOverPanel, gameOverPanel == activePanel);
-        SetPanelActive(levelCompletePanel, levelCompletePanel == activePanel);
-        SetPanelActive(settingsPanel, settingsPanel == activePanel);
+        if (mainMenuPanel != activePanel) SetPanelActive(mainMenuPanel, false);
+        if (gameplayHUDPanel != activePanel) SetPanelActive(gameplayHUDPanel, false);
+        if (pauseMenuPanel != activePanel) SetPanelActive(pauseMenuPanel, false);
+        if (gameOverPanel != activePanel) SetPanelActive(gameOverPanel, false);
+        if (levelCompletePanel != activePanel) SetPanelActive(levelCompletePanel, false);
+        if (settingsPanel != activePanel) SetPanelActive(settingsPanel, false);
+        SetPanelActive(activePanel, true);
 
         if (CurrentState != state)
         {
             CurrentState = state;
-            UIStateChanged?.Invoke(state);
+            GameFactoryEvents.Raise(UIStateChanged, state, this);
         }
     }
 

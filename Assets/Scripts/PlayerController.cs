@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 
+[DisallowMultipleComponent]
 public class PlayerController : MonoBehaviour
 {
     [SerializeField, Min(0f)] private float forwardSpeed = 8f;
@@ -31,9 +32,13 @@ public class PlayerController : MonoBehaviour
     private void Move(float horizontalInput, float deltaTime)
     {
         Vector3 position = transform.position;
+        float safeHorizontal = float.IsNaN(horizontalSpeed) || float.IsInfinity(horizontalSpeed)
+            ? 0f : Mathf.Max(0f, horizontalSpeed);
+        float safeForward = float.IsNaN(forwardSpeed) || float.IsInfinity(forwardSpeed)
+            ? 0f : Mathf.Max(0f, forwardSpeed);
         position.x = Mathf.Clamp(
-            position.x + horizontalInput * horizontalSpeed * deltaTime, MinX, MaxX);
-        position.z += forwardSpeed * deltaTime;
+            position.x + horizontalInput * safeHorizontal * deltaTime, MinX, MaxX);
+        position.z += safeForward * deltaTime;
         transform.position = position;
     }
 }

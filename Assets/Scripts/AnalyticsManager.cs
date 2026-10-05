@@ -10,6 +10,7 @@ public interface IAnalyticsProvider
 }
 
 // No SDK or network provider is installed. Future adapters must use Unity's main thread.
+[DisallowMultipleComponent]
 public class AnalyticsManager : MonoBehaviour
 {
     [SerializeField] private bool debugLogging;
@@ -45,9 +46,10 @@ public class AnalyticsManager : MonoBehaviour
             var clean = new Dictionary<string, object>();
             if (parameters != null)
             {
+                int inspected = 0;
                 foreach (var pair in parameters)
                 {
-                    if (clean.Count >= 32) break;
+                    if (clean.Count >= 32 || ++inspected > 64) break;
                     if (IsValidName(pair.Key) && TrySanitize(pair.Value, out object value)) clean[pair.Key] = value;
                 }
             }
@@ -94,6 +96,7 @@ public class AnalyticsManager : MonoBehaviour
         value = null;
         if (input is string text)
         {
+            if (text.Length > 256) text = text.Substring(0, 256);
             text = text.Trim();
             var clean = new StringBuilder();
             foreach (char character in text)
