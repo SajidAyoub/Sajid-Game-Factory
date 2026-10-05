@@ -17,7 +17,8 @@ public class ShopManager : MonoBehaviour
         AlreadyOwned,
         MissingRewardManager,
         InsufficientRewards,
-        PurchaseInProgress
+        PurchaseInProgress,
+        PersistenceError
     }
 
     [SerializeField] private RewardManager rewardManager;
@@ -42,23 +43,18 @@ public class ShopManager : MonoBehaviour
         }
 
         int price = GetItemPrice(itemId);
-        bool hadOwnershipKey = PlayerPrefs.HasKey(RunnerPersistence.OwnershipKey(itemId));
+        int balanceBefore = rewardManager.GetRewardBalance();
+        bool debitAttempted = false;
         purchasing = true;
         try
         {
             // Stage ownership before currency callbacks to prevent duplicate purchases.
             // SpendRewards flushes both changes together; PlayerPrefs is not transactional.
             RunnerPersistence.SetOwned(itemId);
-            if (price > 0 && !rewardManager.SpendRewards(price))
+            debitAttempted = price > 0;
+            if (debitAttempted && !rewardManager.SpendRewards(price))
             {
-                if (hadOwnershipKey)
-                {
-                    PlayerPrefs.SetInt(RunnerPersistence.OwnershipKey(itemId), 0);
-                }
-                else
-                {
-                    PlayerPrefs.DeleteKey(RunnerPersistence.OwnershipKey(itemId));
-                }
+                RunnerPersistence.SetUnowned(itemId);
 
                 PlayerPrefs.Save();
                 NotifyFailure(itemId, PurchaseFailure.InsufficientRewards);
@@ -72,6 +68,36 @@ public class ShopManager : MonoBehaviour
 
             RunnerPersistence.InvokeSafely(PurchaseSucceeded, itemId, this);
             return true;
+        }
+        catch (Exception exception)
+        {
+            Debug.LogException(exception, this);
+            // A failed Save can leave changed values in memory. Undo ownership and
+            // compensate a detected debit before reporting failure. No callbacks run
+            // between the staged ownership write and SpendRewards' save.
+            try
+            {
+                RunnerPersistence.SetUnowned(itemId);
+
+                if (debitAttempted && rewardManager != null &&
+                    rewardManager.GetRewardBalance() == balanceBefore - price)
+                {
+                    if (!rewardManager.AddRewards(price))
+                        Debug.LogError("Purchase refund could not be applied.", this);
+                }
+                else
+                {
+                    PlayerPrefs.Save();
+                }
+            }
+            catch (Exception recoveryException)
+            {
+                Debug.LogException(recoveryException, this);
+                Debug.LogError("Purchase recovery could not be persisted; local storage requires attention.", this);
+            }
+
+            NotifyFailure(itemId, PurchaseFailure.PersistenceError);
+            return false;
         }
         finally
         {
@@ -177,6 +203,7 @@ public class ShopManager : MonoBehaviour
     }
 }
 
+// Local prototype persistence only: editable, not secure or transactional.
 // Shared data contract, not a dependency between ShopManager and SkinManager objects.
 internal static class RunnerPersistence
 {
@@ -202,11 +229,33 @@ internal static class RunnerPersistence
     }
 
     internal static string OwnershipKey(string id) => "Runner.Items.Owned." + id;
+    private static string OwnershipBackupKey(string id) => "Runner.Items.OwnedBackup." + id;
 
     internal static bool TryReadOwned(string id, out bool owned)
     {
         owned = false;
-        return IsValidId(id) && TryReadFlag(OwnershipKey(id), out owned);
+        if (!IsValidId(id)) return false;
+        bool validPrimary = TryReadFlag(OwnershipKey(id), out bool primary);
+        bool validBackup = TryReadFlag(OwnershipBackupKey(id), out bool backup);
+        owned = (validPrimary && primary) || (validBackup && backup);
+        if (validPrimary && validBackup && primary == backup) return true;
+
+        // Preserve a valid owned copy. If neither copy proves ownership, recover as
+        // unowned. This redundant copy detects accidental damage, not deliberate edits.
+        if (!validPrimary || !validBackup || (!primary && backup))
+            Debug.LogWarning("Recovering inconsistent local ownership: " + id);
+        try
+        {
+            if (owned) SetOwned(id);
+            else SetUnowned(id);
+            PlayerPrefs.Save();
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Debug.LogException(exception);
+            return false;
+        }
     }
 
     internal static bool TryReadFlag(string key, out bool value)
@@ -230,6 +279,13 @@ internal static class RunnerPersistence
     internal static void SetOwned(string id)
     {
         PlayerPrefs.SetInt(OwnershipKey(id), 1);
+        PlayerPrefs.SetInt(OwnershipBackupKey(id), 1);
+    }
+
+    internal static void SetUnowned(string id)
+    {
+        PlayerPrefs.SetInt(OwnershipKey(id), 0);
+        PlayerPrefs.SetInt(OwnershipBackupKey(id), 0);
     }
 
     internal static void InvokeSafely<T>(Action<T> listeners, T value, UnityEngine.Object context)

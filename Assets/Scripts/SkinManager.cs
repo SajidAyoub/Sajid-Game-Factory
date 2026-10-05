@@ -4,9 +4,11 @@ using UnityEngine;
 public class SkinManager : MonoBehaviour
 {
     private const string SelectedSkinKey = "Runner.Skins.Selected";
+    private const string FallbackSkinId = "default";
 
     [SerializeField] private string defaultSkinId = "default";
     [SerializeField] private string[] availableSkinIds = new string[0];
+    private bool notifyingSkinChange;
 
     public event Action<string> SkinChanged;
     public event Action<string> SkinUnlocked;
@@ -15,8 +17,7 @@ public class SkinManager : MonoBehaviour
     {
         if (!RunnerPersistence.IsValidId(defaultSkinId))
         {
-            Debug.LogError("Configure a valid default skin ID.", this);
-            return;
+            RecoverDefaultSkin();
         }
 
         EnsureDefaultOwned();
@@ -41,6 +42,7 @@ public class SkinManager : MonoBehaviour
 
     public bool UnlockSkin(string skinId)
     {
+        RecoverDefaultSkin();
         if (!IsAvailable(skinId))
         {
             return false;
@@ -59,8 +61,18 @@ public class SkinManager : MonoBehaviour
 
         if (!owned)
         {
-            RunnerPersistence.SetOwned(skinId);
-            PlayerPrefs.Save();
+            try
+            {
+                RunnerPersistence.SetOwned(skinId);
+                PlayerPrefs.Save();
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception, this);
+                try { RunnerPersistence.SetUnowned(skinId); PlayerPrefs.Save(); }
+                catch (Exception recoveryException) { Debug.LogException(recoveryException, this); }
+                return false;
+            }
             RunnerPersistence.InvokeSafely(SkinUnlocked, skinId, this);
         }
 
@@ -79,18 +91,26 @@ public class SkinManager : MonoBehaviour
             return true;
         }
 
-        PlayerPrefs.SetString(SelectedSkinKey, skinId);
-        PlayerPrefs.Save();
-        RunnerPersistence.InvokeSafely(SkinChanged, skinId, this);
+        string previous = GetSelectedSkin();
+        try
+        {
+            PlayerPrefs.SetString(SelectedSkinKey, skinId);
+            PlayerPrefs.Save();
+        }
+        catch (Exception exception)
+        {
+            Debug.LogException(exception, this);
+            try { PlayerPrefs.SetString(SelectedSkinKey, previous); PlayerPrefs.Save(); }
+            catch (Exception recoveryException) { Debug.LogException(recoveryException, this); }
+            return false;
+        }
+        NotifySkinChanged(skinId);
         return true;
     }
 
     public string GetSelectedSkin()
     {
-        if (!RunnerPersistence.IsValidId(defaultSkinId))
-        {
-            return string.Empty;
-        }
+        RecoverDefaultSkin();
 
         string selected = PlayerPrefs.GetString(SelectedSkinKey, string.Empty);
         if (IsSkinOwned(selected))
@@ -100,15 +120,23 @@ public class SkinManager : MonoBehaviour
 
         // Corrupt, removed or unowned selections safely fall back to the default.
         EnsureDefaultOwned();
-        PlayerPrefs.SetString(SelectedSkinKey, defaultSkinId);
-        PlayerPrefs.Save();
+        try
+        {
+            PlayerPrefs.SetString(SelectedSkinKey, defaultSkinId);
+            PlayerPrefs.Save();
+        }
+        catch (Exception exception)
+        {
+            Debug.LogException(exception, this);
+        }
+        if (!string.IsNullOrEmpty(selected)) NotifySkinChanged(defaultSkinId);
         return defaultSkinId;
     }
 
     private bool IsAvailable(string skinId)
     {
-        if (!RunnerPersistence.IsValidId(skinId) ||
-            !RunnerPersistence.IsValidId(defaultSkinId))
+        RecoverDefaultSkin();
+        if (!RunnerPersistence.IsValidId(skinId))
         {
             return false;
         }
@@ -118,24 +146,50 @@ public class SkinManager : MonoBehaviour
             return true;
         }
 
-        int matches = 0;
         if (availableSkinIds != null)
         {
             foreach (string availableId in availableSkinIds)
             {
-                if (availableId == skinId) matches++;
+                // Repeated skin catalog entries represent one entitlement.
+                if (availableId == skinId) return true;
             }
         }
 
-        return matches == 1;
+        return false;
     }
 
     private void EnsureDefaultOwned()
     {
+        RecoverDefaultSkin();
         if (!RunnerPersistence.TryReadOwned(defaultSkinId, out bool owned) || !owned)
         {
-            RunnerPersistence.SetOwned(defaultSkinId);
-            PlayerPrefs.Save();
+            try
+            {
+                RunnerPersistence.SetOwned(defaultSkinId);
+                PlayerPrefs.Save();
+            }
+            catch (Exception exception)
+            {
+                // The default remains available even if local storage is unwritable.
+                Debug.LogException(exception, this);
+            }
         }
+    }
+
+    private void RecoverDefaultSkin()
+    {
+        if (!RunnerPersistence.IsValidId(defaultSkinId))
+        {
+            Debug.LogWarning("Invalid default skin ID; using 'default'.", this);
+            defaultSkinId = FallbackSkinId;
+        }
+    }
+
+    private void NotifySkinChanged(string id)
+    {
+        if (notifyingSkinChange) return;
+        notifyingSkinChange = true;
+        try { RunnerPersistence.InvokeSafely(SkinChanged, id, this); }
+        finally { notifyingSkinChange = false; }
     }
 }
