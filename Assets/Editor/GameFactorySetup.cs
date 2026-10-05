@@ -10,6 +10,185 @@ using UnityEngine.SceneManagement;
 public static class GameFactorySetup
 {
     private const string MenuPath = "Tools/Sajid Game Factory/Setup Obstacle & Game Over";
+    private const string FinishMenuPath = "Tools/Sajid Game Factory/Setup Finish Line & Level Progression";
+
+    [MenuItem(FinishMenuPath)]
+    public static void SetupFinishLineAndLevelProgression()
+    {
+        Scene scene = SceneManager.GetActiveScene();
+        if (EditorApplication.isPlayingOrWillChangePlaymode ||
+            PrefabStageUtility.GetCurrentPrefabStage() != null ||
+            !scene.IsValid() || !scene.isLoaded || scene.name != "MainGame")
+        {
+            Debug.LogError("Game Factory: open MainGame as the active scene in Edit Mode (outside Prefab Mode) before finish-line setup.");
+            return;
+        }
+
+        GameObject managers = FindUniqueSceneObject(scene, "Managers");
+        GameObject finishObject = FindUniqueSceneObject(scene, "FinishLine");
+        GameObject playerObject = FindUniqueSceneObject(scene, "Player");
+        if (managers == null || finishObject == null || playerObject == null) return;
+
+        GameManager gameManager = managers.GetComponent<GameManager>();
+        if (gameManager == null)
+        {
+            Debug.LogError("Game Factory: missing GameManager on Managers. Complete obstacle/game-over setup first; no changes made.", managers);
+            return;
+        }
+        PlayerController player = playerObject.GetComponent<PlayerController>();
+        Rigidbody playerBody = playerObject.GetComponent<Rigidbody>();
+        if (player == null || playerBody == null)
+        {
+            Debug.LogError("Game Factory: Player requires PlayerController and Rigidbody. Complete Player setup first; no changes made.", playerObject);
+            return;
+        }
+        bool validPlayerCollider = false;
+        foreach (Collider collider in playerObject.GetComponentsInChildren<Collider>(true))
+        {
+            if (!collider.enabled || !collider.gameObject.activeInHierarchy || collider.attachedRigidbody != playerBody) continue;
+            if (collider is MeshCollider mesh && (mesh.sharedMesh == null || !mesh.convex))
+            {
+                Debug.LogError("Game Factory: invalid Player MeshCollider for the runner's kinematic Rigidbody; fix the collider manually. No changes made.", collider);
+                return;
+            }
+            validPlayerCollider = true;
+        }
+        if (!validPlayerCollider || !playerBody.detectCollisions)
+        {
+            Debug.LogError("Game Factory: missing/invalid Player 3D Collider or Rigidbody collision detection is disabled. No changes made.", playerObject);
+            return;
+        }
+        if (!HasCompatibleReference(typeof(LevelManager), "gameManager", typeof(GameManager)) ||
+            !HasCompatibleReference(typeof(FinishLine), "levelManager", typeof(LevelManager)))
+        {
+            Debug.LogError("Game Factory: incompatible LevelManager.gameManager or FinishLine.levelManager Inspector API; no changes made.");
+            return;
+        }
+        foreach (GameObject root in scene.GetRootGameObjects())
+        {
+            foreach (LevelManager existing in root.GetComponentsInChildren<LevelManager>(true))
+            {
+                if (existing.gameObject != managers)
+                {
+                    Debug.LogError("Game Factory: LevelManager already exists outside Managers; resolve ownership first. No changes made.", existing);
+                    return;
+                }
+            }
+        }
+        Collider[] finishColliders = finishObject.GetComponents<Collider>();
+        foreach (Collider collider in finishColliders)
+        {
+            if (collider is MeshCollider mesh && mesh.sharedMesh == null)
+            {
+                Debug.LogError("Game Factory: invalid FinishLine MeshCollider with no mesh; fix it manually. No changes made.", collider);
+                return;
+            }
+        }
+
+        WarnAboutBuildProgression(scene);
+        Undo.IncrementCurrentGroup();
+        int undoGroup = Undo.GetCurrentGroup();
+        Undo.SetCurrentGroupName("Setup Finish Line & Level Progression");
+        bool changed = false;
+        try
+        {
+            LevelManager levelManager = GetOrAdd<LevelManager>(managers, ref changed);
+            SetReference(levelManager, "gameManager", gameManager, ref changed);
+            FinishLine finishLine = GetOrAdd<FinishLine>(finishObject, ref changed);
+            SetReference(finishLine, "levelManager", levelManager, ref changed);
+            if (finishColliders.Length == 0)
+            {
+                BoxCollider box = GetOrAdd<BoxCollider>(finishObject, ref changed);
+                MeshFilter mesh = finishObject.GetComponent<MeshFilter>();
+                if (mesh != null && mesh.sharedMesh != null)
+                {
+                    Undo.RecordObject(box, "Fit finish-line BoxCollider");
+                    box.center = mesh.sharedMesh.bounds.center;
+                    // Flat meshes still need a nonzero trigger volume.
+                    box.size = Vector3.Max(mesh.sharedMesh.bounds.size, Vector3.one * 0.01f);
+                }
+                else Debug.LogWarning("Game Factory: missing FinishLine Collider; added a BoxCollider without a local mesh. Verify its bounds manually.", finishObject);
+                RecordPrefabChange(box);
+                finishColliders = new Collider[] { box };
+            }
+            foreach (Collider collider in finishColliders)
+            {
+                if (collider is MeshCollider mesh && !mesh.convex)
+                {
+                    Undo.RecordObject(mesh, "Make finish-line trigger mesh convex");
+                    mesh.convex = true;
+                    RecordPrefabChange(mesh);
+                    changed = true;
+                    Debug.LogWarning("Game Factory: verify convex FinishLine mesh cooking and trigger shape in Unity.", mesh);
+                }
+                if (!collider.enabled || !collider.isTrigger)
+                {
+                    Undo.RecordObject(collider, "Configure finish-line trigger");
+                    collider.enabled = true;
+                    collider.isTrigger = true;
+                    RecordPrefabChange(collider);
+                    changed = true;
+                }
+            }
+            if (!player.isActiveAndEnabled || !gameManager.isActiveAndEnabled ||
+                !levelManager.isActiveAndEnabled || !finishLine.isActiveAndEnabled)
+                Debug.LogWarning("Game Factory: a required component/object is inactive or disabled; its activation was preserved. Verify before Play Mode.");
+            if (!playerBody.isKinematic || playerBody.useGravity)
+                Debug.LogWarning("Game Factory: Player Rigidbody differs from the runner's kinematic, gravity-free setup; settings preserved. Verify physics manually.", playerBody);
+            if (changed) EditorSceneManager.MarkSceneDirty(scene);
+            Undo.FlushUndoRecordObjects();
+            Undo.CollapseUndoOperations(undoGroup);
+            Debug.Log("Game Factory: finish-line/level-progression setup completed. " +
+                (changed ? "Review and save MainGame manually." : "References and settings were already correct; no changes needed.") +
+                " Build Settings and all existing Player/GameManager settings were preserved.");
+        }
+        catch (Exception exception)
+        {
+            Debug.LogError("Game Factory: partial finish-line setup failure. Attempting Undo rollback; inspect the scene before saving.");
+            Debug.LogException(exception);
+            try
+            {
+                Undo.FlushUndoRecordObjects();
+                Undo.RevertAllDownToGroup(undoGroup);
+            }
+            catch (Exception undoException) { Debug.LogException(undoException); }
+        }
+    }
+
+    private static GameObject FindUniqueSceneObject(Scene scene, string name)
+    {
+        GameObject match = null;
+        foreach (GameObject root in scene.GetRootGameObjects())
+        {
+            foreach (Transform item in root.GetComponentsInChildren<Transform>(true))
+            {
+                if (item.name != name) continue;
+                if (match != null)
+                {
+                    Debug.LogError("Game Factory: multiple objects named " + name + "; setup cancelled without changes.");
+                    return null;
+                }
+                match = item.gameObject;
+            }
+        }
+        if (match == null) Debug.LogError("Game Factory: missing " + name + "; setup cancelled without changes.");
+        return match;
+    }
+
+    private static void WarnAboutBuildProgression(Scene scene)
+    {
+        List<EditorBuildSettingsScene> enabledScenes = new List<EditorBuildSettingsScene>();
+        foreach (EditorBuildSettingsScene entry in EditorBuildSettings.scenes)
+            if (entry.enabled) enabledScenes.Add(entry);
+        int index = enabledScenes.FindIndex(entry => entry.path == scene.path);
+        if (string.IsNullOrEmpty(scene.path) || index < 0)
+            Debug.LogWarning("Game Factory: active scene is not saved/in the enabled build scene list. Add it manually to the active Build Profile for restart/progression; build configuration was not changed.");
+        else if (index + 1 >= enabledScenes.Count ||
+            AssetDatabase.LoadAssetAtPath<SceneAsset>(enabledScenes[index + 1].path) == null)
+            Debug.LogWarning("Game Factory: no valid next enabled build scene. Finish completion can work, but LoadNextLevel needs another scene; build configuration was not changed.");
+        // Unity 6 Build Profiles may override the shared list queried above.
+        Debug.Log("Game Factory: verify scene order in the active Unity 6 Build Profile, including any profile-specific scene-list override. No build configuration was changed.");
+    }
 
     [MenuItem(MenuPath)]
     public static void SetupObstacleAndGameOver()
