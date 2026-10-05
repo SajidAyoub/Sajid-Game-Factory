@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using UnityEditor;
+using UnityEditor.Build.Profile;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -11,6 +12,145 @@ public static class GameFactorySetup
 {
     private const string MenuPath = "Tools/Sajid Game Factory/Setup Obstacle & Game Over";
     private const string FinishMenuPath = "Tools/Sajid Game Factory/Setup Finish Line & Level Progression";
+    private const string BuildMenuPath = "Tools/Sajid Game Factory/Ensure MainGame In Build Scenes";
+    private const string MainGameScenePath = "Assets/Scenes/MainGame.unity";
+
+    [MenuItem(BuildMenuPath)]
+    public static void EnsureMainGameInBuildScenes()
+    {
+        if (EditorApplication.isPlayingOrWillChangePlaymode || EditorApplication.isCompiling || EditorApplication.isUpdating)
+        {
+            Debug.LogError("Game Factory: unsafe editor state; run build-scene setup in Edit Mode after compilation/import finishes.");
+            return;
+        }
+        if (AssetDatabase.LoadAssetAtPath<SceneAsset>(MainGameScenePath) == null)
+        {
+            Debug.LogError("Game Factory: scene asset missing at " + MainGameScenePath + "; build scenes were not changed.");
+            return;
+        }
+
+        BuildProfile profile = null;
+        bool profileOverride = false;
+        EditorBuildSettingsScene[] original = null;
+        EditorBuildSettingsScene[] updated = null;
+        bool attemptedWrite = false;
+        try
+        {
+            profile = BuildProfile.GetActiveBuildProfile();
+            profileOverride = profile != null && profile.overrideGlobalScenes;
+            if (profileOverride && (string.IsNullOrEmpty(AssetDatabase.GetAssetPath(profile)) ||
+                !AssetDatabase.IsOpenForEdit(AssetDatabase.GetAssetPath(profile))))
+                throw new InvalidOperationException("Unsupported/unsafe Build Profile state: active override asset is unsaved or not editable.");
+            if (profileOverride)
+            {
+                // Unity's profile getter automatically removes missing scene assets.
+                // Inspect the serialized list first so malformed profiles are left alone.
+                SerializedObject serializedProfile = new SerializedObject(profile);
+                SerializedProperty rawScenes = serializedProfile.FindProperty("m_Scenes");
+                if (rawScenes == null || !rawScenes.isArray)
+                    throw new InvalidOperationException("Unsupported Build Profile scene serialization; configure it manually.");
+                for (int i = 0; i < rawScenes.arraySize; i++)
+                {
+                    SerializedProperty path = rawScenes.GetArrayElementAtIndex(i).FindPropertyRelative("m_path");
+                    if (path == null || path.propertyType != SerializedPropertyType.String ||
+                        AssetDatabase.LoadAssetAtPath<SceneAsset>(path.stringValue) == null)
+                        throw new InvalidOperationException("Unsafe Build Profile contains an invalid scene asset; repair it manually before running setup.");
+                }
+            }
+
+            // Unity 6 routes this API to the active override, or to the shared list.
+            original = CopyBuildScenes(EditorBuildSettings.scenes);
+            string sceneGuid = AssetDatabase.AssetPathToGUID(MainGameScenePath);
+            int match = -1;
+            for (int i = 0; i < original.Length; i++)
+            {
+                bool samePath = original[i].path == MainGameScenePath;
+                bool sameGuid = original[i].guid.ToString() == sceneGuid;
+                if (!samePath && !sameGuid) continue;
+                if (match >= 0 || !samePath)
+                    throw new InvalidOperationException("Unsupported/unsafe scene list: duplicate or stale MainGame entries. Resolve them manually; no changes made.");
+                match = i;
+            }
+            if (match >= 0 && original[match].enabled)
+            {
+                Debug.Log("Game Factory: MainGame is already configured and enabled in the active build scene list; no changes needed.");
+                return;
+            }
+
+            foreach (EditorBuildSettingsScene entry in original)
+            {
+                if (AssetDatabase.LoadAssetAtPath<SceneAsset>(entry.path) == null ||
+                    (!entry.guid.Equals(default(GUID)) && AssetDatabase.GUIDToAssetPath(entry.guid.ToString()) != entry.path))
+                    throw new InvalidOperationException("Unsafe build scene list contains a missing asset or stale GUID/path. Repair it manually; existing entries will not be overwritten.");
+            }
+
+            updated = CopyBuildScenes(original);
+            if (match >= 0) updated[match].enabled = true;
+            else
+            {
+                Array.Resize(ref updated, updated.Length + 1);
+                updated[updated.Length - 1] = new EditorBuildSettingsScene(MainGameScenePath, true);
+            }
+            if (profileOverride) Undo.RegisterCompleteObjectUndo(profile, "Ensure MainGame In Build Scenes");
+            else Debug.LogWarning("Game Factory: shared EditorBuildSettings scene-list changes do not have a normal object Undo target. Undo is unavailable for this operation; other entries/order will be preserved.");
+
+            attemptedWrite = true;
+            EditorBuildSettings.scenes = updated;
+            if (BuildProfile.GetActiveBuildProfile() != profile ||
+                (profile != null && profile.overrideGlobalScenes) != profileOverride ||
+                !SameBuildScenes(EditorBuildSettings.scenes, updated))
+                throw new InvalidOperationException("Active build scene list did not retain the requested update.");
+            if (profileOverride) EditorUtility.SetDirty(profile);
+            Debug.Log("Game Factory: MainGame " + (match >= 0 ? "re-enabled" : "added successfully at the end") +
+                " in the active build scene list. Existing entries and order preserved. " +
+                (profileOverride ? "Build Profile Undo is available; the profile asset is marked dirty for saving." : "Shared build scene list updated."));
+        }
+        catch (Exception exception)
+        {
+            Debug.LogError("Game Factory: build-scene setup failed" + (attemptedWrite ? " after a write attempt (possible partial failure)." : " before writing; no build changes made."));
+            Debug.LogException(exception);
+            if (!attemptedWrite || original == null) return;
+            try
+            {
+                // Do not overwrite a different profile or another tool's intervening edits.
+                BuildProfile current = BuildProfile.GetActiveBuildProfile();
+                if (current != profile || (current != null && current.overrideGlobalScenes) != profileOverride ||
+                    !SameBuildScenes(EditorBuildSettings.scenes, updated))
+                {
+                    Debug.LogError("Game Factory: safe rollback unavailable because the active profile/list changed; inspect Build Profiles manually.");
+                    return;
+                }
+                EditorBuildSettings.scenes = original;
+                if (!SameBuildScenes(EditorBuildSettings.scenes, original))
+                    throw new InvalidOperationException("Original build scene list could not be restored; inspect Build Profiles manually.");
+                if (profileOverride) EditorUtility.SetDirty(profile);
+                Debug.LogWarning("Game Factory: restored the original build scene list after the partial failure; verify Build Profiles.");
+            }
+            catch (Exception rollbackException) { Debug.LogException(rollbackException); }
+        }
+    }
+
+    private static EditorBuildSettingsScene[] CopyBuildScenes(EditorBuildSettingsScene[] scenes)
+    {
+        if (scenes == null) throw new InvalidOperationException("Unsupported/unsafe null build scene list.");
+        EditorBuildSettingsScene[] copy = new EditorBuildSettingsScene[scenes.Length];
+        for (int i = 0; i < scenes.Length; i++)
+        {
+            if (scenes[i] == null || scenes[i].path == null)
+                throw new InvalidOperationException("Unsupported/unsafe malformed build scene entry; fix it manually.");
+            copy[i] = new EditorBuildSettingsScene { path = scenes[i].path, enabled = scenes[i].enabled, guid = scenes[i].guid };
+        }
+        return copy;
+    }
+
+    private static bool SameBuildScenes(EditorBuildSettingsScene[] left, EditorBuildSettingsScene[] right)
+    {
+        if (left == null || right == null || left.Length != right.Length) return false;
+        for (int i = 0; i < left.Length; i++)
+            if (left[i] == null || right[i] == null || left[i].path != right[i].path ||
+                left[i].enabled != right[i].enabled || !left[i].guid.Equals(right[i].guid)) return false;
+        return true;
+    }
 
     [MenuItem(FinishMenuPath)]
     public static void SetupFinishLineAndLevelProgression()
@@ -182,12 +322,11 @@ public static class GameFactorySetup
             if (entry.enabled) enabledScenes.Add(entry);
         int index = enabledScenes.FindIndex(entry => entry.path == scene.path);
         if (string.IsNullOrEmpty(scene.path) || index < 0)
-            Debug.LogWarning("Game Factory: active scene is not saved/in the enabled build scene list. Add it manually to the active Build Profile for restart/progression; build configuration was not changed.");
+            Debug.LogWarning("Game Factory: MainGame is missing/disabled in the active build scene list. Run Tools > Sajid Game Factory > Ensure MainGame In Build Scenes. Finish-line setup does not modify build configuration.");
         else if (index + 1 >= enabledScenes.Count ||
             AssetDatabase.LoadAssetAtPath<SceneAsset>(enabledScenes[index + 1].path) == null)
             Debug.LogWarning("Game Factory: no valid next enabled build scene. Finish completion can work, but LoadNextLevel needs another scene; build configuration was not changed.");
-        // Unity 6 Build Profiles may override the shared list queried above.
-        Debug.Log("Game Factory: verify scene order in the active Unity 6 Build Profile, including any profile-specific scene-list override. No build configuration was changed.");
+        // EditorBuildSettings.scenes includes the active Unity 6 profile override.
     }
 
     [MenuItem(MenuPath)]
