@@ -777,6 +777,7 @@ GameObject:
   - component: {fileID: 790760816}
   - component: {fileID: 790760815}
   - component: {fileID: 790760814}
+  - component: {fileID: 790760818}
   m_Layer: 0
   m_Name: Obstacle_03
   m_TagString: Untagged
@@ -799,7 +800,7 @@ BoxCollider:
     serializedVersion: 2
     m_Bits: 0
   m_LayerOverridePriority: 0
-  m_IsTrigger: 0
+  m_IsTrigger: 1
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
@@ -873,6 +874,19 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &790760818
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 790760813}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4cedf84f649510d45947836cbb41b7d3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  gameManager: {fileID: 2029038392}
 --- !u!1 &832575517
 GameObject:
   m_ObjectHideFlags: 0
@@ -934,6 +948,7 @@ GameObject:
   - component: {fileID: 1268899894}
   - component: {fileID: 1268899893}
   - component: {fileID: 1268899892}
+  - component: {fileID: 1268899896}
   m_Layer: 0
   m_Name: Obstacle_01
   m_TagString: Untagged
@@ -956,7 +971,7 @@ BoxCollider:
     serializedVersion: 2
     m_Bits: 0
   m_LayerOverridePriority: 0
-  m_IsTrigger: 0
+  m_IsTrigger: 1
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
@@ -1030,6 +1045,19 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1268899896
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1268899891}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4cedf84f649510d45947836cbb41b7d3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  gameManager: {fileID: 2029038392}
 --- !u!1 &1607865507
 GameObject:
   m_ObjectHideFlags: 0
@@ -1417,6 +1445,7 @@ GameObject:
   - component: {fileID: 2012195226}
   - component: {fileID: 2012195225}
   - component: {fileID: 2012195224}
+  - component: {fileID: 2012195228}
   m_Layer: 0
   m_Name: Obstacle_02
   m_TagString: Untagged
@@ -1439,7 +1468,7 @@ BoxCollider:
     serializedVersion: 2
     m_Bits: 0
   m_LayerOverridePriority: 0
-  m_IsTrigger: 0
+  m_IsTrigger: 1
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
@@ -1513,6 +1542,19 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &2012195228
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2012195223}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4cedf84f649510d45947836cbb41b7d3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  gameManager: {fileID: 2029038392}
 --- !u!1 &2029038389
 GameObject:
   m_ObjectHideFlags: 0
@@ -1523,6 +1565,7 @@ GameObject:
   m_Component:
   - component: {fileID: 2029038391}
   - component: {fileID: 2029038390}
+  - component: {fileID: 2029038392}
   m_Layer: 0
   m_Name: Managers
   m_TagString: Untagged
@@ -1557,6 +1600,20 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &2029038392
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2029038389}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d04bef0e807cafd41a19d198e85d2cc8, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  playerController: {fileID: 608016109}
+  pauseManager: {fileID: 0}
 --- !u!1 &2075419690
 GameObject:
   m_ObjectHideFlags: 0
