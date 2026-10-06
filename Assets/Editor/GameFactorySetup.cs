@@ -538,6 +538,137 @@ public static class GameFactorySetup
         RunManagerSetup("Core Managers", CoreManagerTypes, WireManagerDependencies);
     }
 
+    [MenuItem(MenuRoot + "Setup Audio & Settings")]
+    public static void SetupAudioAndSettings()
+    {
+        RunManagerSetup("Audio & Settings", new[] { typeof(SaveManager), typeof(AudioManager), typeof(SettingsManager) }, context =>
+        {
+            Wire(context, typeof(AudioManager), "saveManager", typeof(SaveManager));
+            Wire(context, typeof(SettingsManager), "saveManager", typeof(SaveManager));
+            Wire(context, typeof(SettingsManager), "audioManager", typeof(AudioManager));
+            AudioManager audio = context.Get(typeof(AudioManager)) as AudioManager;
+            if (audio == null) return;
+            AudioSource music = ReadReference(audio, "musicSource") as AudioSource;
+            AudioSource sfx = ReadReference(audio, "sfxSource") as AudioSource;
+            if (music != null && music == sfx)
+            {
+                Debug.LogWarning("Game Factory: Music and SFX reference the same AudioSource. Assign distinct sources manually; configured references preserved.", audio);
+                return;
+            }
+            var unused = new List<AudioSource>();
+            foreach (AudioSource source in audio.GetComponents<AudioSource>())
+                if (source != music && source != sfx) unused.Add(source);
+            int missing = (music == null ? 1 : 0) + (sfx == null ? 1 : 0);
+            // Names/order cannot identify the role of an unassigned user AudioSource.
+            // One remaining source for one empty slot is the only unambiguous reuse.
+            if (missing > 0 && unused.Count > 0 && !(unused.Count == 1 && missing == 1))
+            {
+                Debug.LogWarning("Game Factory: unassigned AudioSources have ambiguous roles. Assign AudioManager Music/SFX references manually; no sources added or changed.", audio);
+                return;
+            }
+            if (music == null) PrepareAudioSource(context, audio, "musicSource", true, unused);
+            if (sfx == null) PrepareAudioSource(context, audio, "sfxSource", false, unused);
+            WarnConfiguredSource(music, true);
+            WarnConfiguredSource(sfx, false);
+            Debug.Log("Game Factory: audio clips, volume, mixer routing and existing source settings were preserved. Supply clips and test saved settings manually.");
+        });
+    }
+
+    private static void PrepareAudioSource(SetupContext context, AudioManager owner, string field, bool music, List<AudioSource> unused)
+    {
+        SerializedProperty property = new SerializedObject(owner).FindProperty(field);
+        if (property == null || property.propertyType != SerializedPropertyType.ObjectReference)
+            throw new InvalidOperationException("Incompatible AudioManager source field: " + field);
+        if (property.objectReferenceInstanceIDValue != 0)
+        {
+            Debug.LogWarning("Game Factory: broken audio reference preserved; repair " + field + " manually.", owner);
+            return;
+        }
+        AudioSource source;
+        if (unused.Count == 1)
+        {
+            source = unused[0];
+            unused.Clear();
+            WarnConfiguredSource(source, music);
+        }
+        else
+        {
+            source = Undo.AddComponent<AudioSource>(owner.gameObject);
+            if (source == null) throw new InvalidOperationException("Could not create an AudioSource.");
+            Undo.RecordObject(source, "Configure new " + (music ? "Music" : "SFX") + " AudioSource");
+            source.playOnAwake = false;
+            source.loop = music;
+            source.spatialBlend = 0f;
+            RecordPrefabChange(source);
+            context.Changed = true;
+        }
+        AssignMissingReference(context, owner, field, source);
+    }
+
+    private static void WarnConfiguredSource(AudioSource source, bool music)
+    {
+        if (source != null && (source.playOnAwake || source.spatialBlend != 0f || source.loop != music))
+            Debug.LogWarning("Game Factory: existing " + (music ? "Music" : "SFX") +
+                " source differs from recommended Play On Awake off, Spatial Blend 0, and Loop " + music +
+                ". User configuration preserved; review manually.", source);
+    }
+
+    [MenuItem(MenuRoot + "Setup Economy Systems")]
+    public static void SetupEconomySystems()
+    {
+        RunManagerSetup("Economy Systems", new[] { typeof(RewardManager), typeof(DailyRewardManager),
+            typeof(ShopManager), typeof(SkinManager), typeof(MissionManager) }, context =>
+        {
+            Wire(context, typeof(DailyRewardManager), "rewardManager", typeof(RewardManager));
+            Wire(context, typeof(ShopManager), "rewardManager", typeof(RewardManager));
+            Wire(context, typeof(MissionManager), "rewardManager", typeof(RewardManager));
+            WarnEmptyCatalog(context.Get(typeof(ShopManager)), "items", "Configure shop IDs/prices manually; no entries or prices invented.");
+            WarnEmptyCatalog(context.Get(typeof(SkinManager)), "availableSkinIds", "Configure available skin IDs manually; the existing default is preserved.");
+            WarnEmptyCatalog(context.Get(typeof(MissionManager)), "activeMissions", "Create/configure MissionDefinition assets and assign them manually; no missions generated.");
+            Debug.Log("Game Factory: economy balancing and PlayerPrefs were not touched; validation will report malformed/duplicate catalog data.");
+        });
+    }
+
+    private static void WarnEmptyCatalog(Component owner, string field, string guidance)
+    {
+        if (owner == null) return;
+        SerializedProperty property = new SerializedObject(owner).FindProperty(field);
+        if (property == null || !property.isArray)
+            throw new InvalidOperationException("Incompatible catalog API: " + owner.GetType().Name + "." + field);
+        if (property.arraySize == 0) Debug.LogWarning("Game Factory: " + owner.GetType().Name + " has no " + field + ". " + guidance, owner);
+    }
+
+    [MenuItem(MenuRoot + "Setup Services Placeholders")]
+    public static void SetupServicesPlaceholders()
+    {
+        RunManagerSetup("Services Placeholders", new[] { typeof(AnalyticsManager), typeof(AdsManager), typeof(RemoteConfigManager) }, context =>
+        {
+            Wire(context, typeof(AdsManager), "analyticsManager", typeof(AnalyticsManager));
+            Component ads = context.Get(typeof(AdsManager));
+            if (ads != null && RequiredProperty(ads, "enableMockAds", SerializedPropertyType.Boolean).boolValue)
+                Debug.LogWarning("Game Factory: existing mock ads are enabled. Setting preserved; turn it off before release. No currency adapter is installed.", ads);
+            Debug.Log("Game Factory: optional local service placeholders only. New ads use the runtime disabled default; no provider, network fetch, tracking request or currency grant was invoked.");
+        });
+    }
+
+    // Reads serialized data only: never calls gameplay getters that may repair PlayerPrefs.
+    private static UnityEngine.Object ReadReference(Component owner, string field)
+    {
+        if (owner == null) return null;
+        SerializedProperty property = new SerializedObject(owner).FindProperty(field);
+        if (property == null || property.propertyType != SerializedPropertyType.ObjectReference)
+            throw new InvalidOperationException("Incompatible serialized reference: " + owner.GetType().Name + "." + field);
+        return property.objectReferenceValue;
+    }
+
+    private static SerializedProperty RequiredProperty(Component owner, string field, SerializedPropertyType type)
+    {
+        SerializedProperty property = new SerializedObject(owner).FindProperty(field);
+        if (property == null || property.propertyType != type)
+            throw new InvalidOperationException("Incompatible serialized field: " + owner.GetType().Name + "." + field);
+        return property;
+    }
+
     private static bool TryGetSetupScene(out Scene scene)
     {
         scene = SceneManager.GetActiveScene();
