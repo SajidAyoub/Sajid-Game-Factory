@@ -74,10 +74,13 @@ public static partial class GameFactorySetup
         string id = "level1/" + parent.name + "/" + name;
         // First create an owned transform; keep primitive components on a child.
         GameObject holder = OwnedChild(build, parent, name, id, out bool created);
-        if (!created) return holder; // Preserve edited generated geometry/materials.
-        holder.transform.localPosition = position;
-        holder.transform.localScale = scale;
-        holder.transform.localRotation = Quaternion.Euler(euler);
+        if (!created && holder.transform.Find("Mesh") != null) return holder; // Preserve edited generated geometry/materials.
+        if (created)
+        {
+            holder.transform.localPosition = position;
+            holder.transform.localScale = scale;
+            holder.transform.localRotation = Quaternion.Euler(euler);
+        }
         GameObject mesh = GameObject.CreatePrimitive(type);
         mesh.name = "Mesh";
         Undo.RegisterCreatedObjectUndo(mesh, "Create decorative mesh");
@@ -150,7 +153,9 @@ public static partial class GameFactorySetup
     private static bool PrimitiveRenderer(Renderer renderer)
     {
         MeshFilter mesh = renderer != null ? renderer.GetComponent<MeshFilter>() : null;
-        return mesh != null && mesh.sharedMesh != null && AssetDatabase.GetAssetPath(mesh.sharedMesh) == "Library/unity default resources";
+        if (mesh == null || mesh.sharedMesh == null) return false;
+        string path = AssetDatabase.GetAssetPath(mesh.sharedMesh);
+        return path == "Library/unity default resources" || path == "Resources/unity_builtin_extra";
     }
 
     private static void HidePrimitive(Renderer renderer)
