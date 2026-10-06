@@ -131,6 +131,7 @@ GameObject:
   - component: {fileID: 278118017}
   - component: {fileID: 278118016}
   - component: {fileID: 278118015}
+  - component: {fileID: 278118019}
   m_Layer: 0
   m_Name: FinishLine
   m_TagString: Untagged
@@ -153,7 +154,7 @@ BoxCollider:
     serializedVersion: 2
     m_Bits: 0
   m_LayerOverridePriority: 0
-  m_IsTrigger: 0
+  m_IsTrigger: 1
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
@@ -227,6 +228,19 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &278118019
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 278118014}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d0a5e441dc2412f43b93ca7ded2eb0d2, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  levelManager: {fileID: 2029038393}
 --- !u!1 &330585543
 GameObject:
   m_ObjectHideFlags: 0
@@ -1566,6 +1580,7 @@ GameObject:
   - component: {fileID: 2029038391}
   - component: {fileID: 2029038390}
   - component: {fileID: 2029038392}
+  - component: {fileID: 2029038393}
   m_Layer: 0
   m_Name: Managers
   m_TagString: Untagged
@@ -1613,6 +1628,20 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   playerController: {fileID: 608016109}
+  pauseManager: {fileID: 0}
+--- !u!114 &2029038393
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2029038389}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: edcbf162dfeae07469fe4fe10575ea26, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  gameManager: {fileID: 2029038392}
   pauseManager: {fileID: 0}
 --- !u!1 &2075419690
 GameObject:
