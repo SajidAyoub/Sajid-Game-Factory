@@ -42,8 +42,8 @@ public static partial class GameFactorySetup
         for (int sign = -1; sign <= 1; sign += 2)
         {
             string side = sign < 0 ? "Left" : "Right";
-            FantasyBox(build, root, side + "Ear", new Vector3(sign * w * 0.23f, h * 0.47f, -w * 0.045f), new Vector3(w * 0.19f, h * 0.17f, w * 0.17f), "WolfFur", new Vector3(0, 0, sign * -18));
-            FantasyBox(build, root, side + "InnerEar", new Vector3(sign * w * 0.23f, h * 0.47f, w * 0.045f), new Vector3(w * 0.095f, h * 0.11f, 0.014f), "WolfEarInner", new Vector3(0, 0, sign * -18));
+            WolfEar(build, root, side + "Ear", new Vector3(sign * w * 0.23f, h * 0.47f, -w * 0.045f), new Vector3(w * 0.25f, h * 0.18f, w * 0.24f), sign, "WolfFur");
+            WolfEar(build, root, side + "InnerEar", new Vector3(sign * w * 0.23f, h * 0.47f, w * 0.035f), new Vector3(w * 0.12f, h * 0.11f, 0.014f), sign, "WolfEarInner");
             Primitive(build, root, side + "Eye", PrimitiveType.Sphere, new Vector3(sign * w * 0.18f, h * 0.35f, w * 0.27f), new Vector3(w * 0.1f, h * 0.043f, 0.035f), build.Materials["FantasyCyan"]);
         }
         Transform leftArm = WolfLimb(build, root, "WolfLeftArm", new Vector3(-w * 0.4f, h * 0.15f, 0), h * 0.35f, w * 0.2f, true);
@@ -62,7 +62,8 @@ public static partial class GameFactorySetup
         string[] palette = { "WolfFur", "WolfJacket", "WolfOutfit", "WolfLime" };
         for (int i = 0; i < slots.Length; i++)
         {
-            SetLevel1Reference(controller, slots[i] + "Material", build.Materials[palette[i]]);
+            if (ReadReference(controller, slots[i] + "Material") == null)
+                SetLevel1Reference(controller, slots[i] + "Material", build.Materials[palette[i]]);
             var serialized = new SerializedObject(controller);
             SerializedProperty renderers = serialized.FindProperty(slots[i] + "Renderers");
             if (renderers.arraySize != 0) continue; // Explicit user slot edits are preserved.
@@ -78,6 +79,37 @@ public static partial class GameFactorySetup
         if (old != null) RetireOwnedVisual(old.gameObject, "level1/player-proxy");
         HidePrimitive(player.GetComponent<Renderer>());
         Debug.Log("Fantasy: white wolf proxy with blue jacket, dark sportswear and lime accents. Player root/physics unchanged; custom FBX swap seam ready.");
+    }
+
+    private static void WolfEar(Level1Build build, Transform parent, string name, Vector3 position, Vector3 scale, int side, string material)
+    {
+        GameObject ear = OwnedChild(build, parent, name, "level1/fantasy/ear/" + name, out bool created);
+        if (created)
+        {
+            Undo.RecordObject(ear.transform, "Align triangular wolf ear");
+            ear.transform.localPosition = position; ear.transform.localScale = scale;
+            ear.transform.localRotation = Quaternion.Euler(0, 0, side * -15f);
+        }
+        if (ear.GetComponent<MeshFilter>() != null && ear.GetComponent<MeshRenderer>() != null) return;
+        string path = FantasyFolder + "/WolfEar.asset";
+        Mesh mesh = AssetDatabase.LoadAssetAtPath<Mesh>(path);
+        if (mesh == null)
+        {
+            if (AssetDatabase.LoadMainAssetAtPath(path) != null) throw new InvalidOperationException("Unexpected wolf ear asset.");
+            mesh = new Mesh { name = "WolfEar" };
+            Vector3[] points = { new Vector3(-0.5f, -0.5f, -0.5f), new Vector3(0.5f, -0.5f, -0.5f),
+                new Vector3(0, 0.5f, 0), new Vector3(-0.5f, -0.5f, 0.5f), new Vector3(0.5f, -0.5f, 0.5f) };
+            int[] order = { 0, 2, 1, 1, 2, 4, 4, 2, 3, 3, 2, 0, 0, 1, 4, 0, 4, 3 };
+            var vertices = new Vector3[order.Length]; var triangles = new int[order.Length];
+            for (int i = 0; i < order.Length; i++) { vertices[i] = points[order[i]]; triangles[i] = i; }
+            mesh.vertices = vertices; mesh.triangles = triangles;
+            mesh.RecalculateNormals(); mesh.RecalculateBounds();
+            AssetDatabase.CreateAsset(mesh, path);
+        }
+        MeshFilter filter = ear.GetComponent<MeshFilter>() ?? Undo.AddComponent<MeshFilter>(ear);
+        MeshRenderer renderer = ear.GetComponent<MeshRenderer>() ?? Undo.AddComponent<MeshRenderer>(ear);
+        Undo.RecordObject(filter, "Assign procedural wolf ear"); Undo.RecordObject(renderer, "Assign ear material");
+        filter.sharedMesh = mesh; renderer.sharedMaterial = build.Materials[material];
     }
 
     private static Transform WolfLimb(Level1Build build, Transform parent, string name, Vector3 pivot, float length, float width, bool arm)
