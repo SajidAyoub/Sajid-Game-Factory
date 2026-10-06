@@ -1,10 +1,55 @@
 # Game Factory architecture and audit
 
-## Current automation expansion
+## Current Level 1 Master extension
 
-The user reports that the original runner movement/camera, coin/score, obstacle/game-over, finish completion and MainGame build inclusion were verified in Unity. The committed scene now includes those components and references, Player's kinematic/gravity-free Rigidbody, contact triggers and script metadata; MainGame follows SampleScene in the shared enabled build list. There is no next enabled level. This task does not change that scene, Build Settings, runtime scripts, visuals, existing metadata, packages or those gameplay behaviors.
+**Workflow:** Codex → GitHub → Unity Pull → Tools > Sajid Game Factory > Build / Repair Level 1 Master → Validate Current Game Setup → Play Test → Visual review → Lock Level 1 → Duplicate architecture for future levels.
 
-Only `Assets/Editor/GameFactorySetup.cs`, README.md and the two Game Factory guides are modified. No repository files are created by this task. Editor automation runs only when the user invokes its menu commands; there is no import-time setup, ExecuteAlways component or runtime Editor dependency. The tool remains one existing file with separate setup, discovery/wiring and validation helpers.
+No existing runtime gameplay script, scene, prefab, visual asset, metadata, package or build configuration was changed in Codex. The only existing code change is GameFactorySetup.cs becoming partial and adding Level 1 validation reporting. README and both guides are updated. No generated Unity assets or metadata were hand-written.
+
+| New file | Responsibility / dependency contract |
+| --- | --- |
+| Assets/Editor/GameFactorySetup.Level1.cs | Master menu, owned hierarchy, URP materials, runner/coin/environment/obstacle/finish geometry and conservative lighting. Calls existing core automation first; does not replace it. |
+| Assets/Editor/GameFactorySetup.Level1UI.cs | Generated particles, portrait Canvas/Text/buttons, persistent Input System assets/references, bridge Inspector wiring and read-only Level 1 validation. |
+| Assets/Scripts/Level1GeneratedObject.cs | Serialized ownership ID for generated scene children; no gameplay or event behavior. |
+| Assets/Scripts/SimpleRunnerVisual.cs | Actual Player displacement and enabled PlayerController drive bounded local limb swings; restores rest pose when stopped. Does not move Player or require Animator. |
+| Assets/Scripts/CoinVisualAnimator.cs | Bounded local child-only rotation/bob using unscaled time; never animates root/collider. No per-frame managed allocations. |
+| Assets/Scripts/Level1PresentationController.cs | Scene-owned presentation adapter with Inspector dependencies. Initializes HUD after Awake, subscribes once to exact publishers, unsubscribes on disable, routes UI/state/settings/audio/VFX without runtime scene searches. |
+
+### Presentation data and state flow
+
+The always-active bridge lives outside every panel. It observes GameManager.StateChanged/GameOverTriggered/LevelCompleted, ScoreManager.ScoreChanged, PauseManager.PauseStateChanged, RewardManager.RewardBalanceChanged, the three SettingsManager preference events and each unique Coin.Collected. Coin callbacks capture the coin position source; existing Coin already snapshots its event before disabling itself. Exact publisher snapshots and cloned coin subscriptions make disable/re-enable unsubscribe reliably even if Inspector fields change. Do not add a second bridge or separate listeners performing the same presentation action.
+
+HUD is initialized in Start and displays current score, max(saved best/current score), explicit displayLevelNumber=1, per-run collected coin count and independent RewardManager balance. Coin score value is not coin count or reward currency. GameOver/LevelComplete call existing SaveManager.UpdateBestScore; no other save schema/key/reset is added. Run count resets by scene recreation. Settings changes continue through SettingsManager/SaveManager; no direct PlayerPrefs call exists in the helpers.
+
+Terminal state has priority over Settings/Pause/HUD. Pause and Settings use the existing PauseManager time-scale authority; Back restores the prior pause state, repeated OpenSettings does not overwrite it. Restart/next delegate to existing loaders, which own pause restoration. Next is disabled until completion and a subsequent build index exists; no Level 2 is fabricated. A real Main Menu start gate remains future work: its generated panel is hidden, and existing automatic Playing behavior is preserved.
+
+Three preallocated world-space ParticleSystems use manual bounded emission (10 coin, 16 hit, 24 finish; maximum 64 each). The bridge exposes public play methods and listens to existing events. Optional backgroundMusic/coinSFX/hitSFX/finishSFX/uiClickSFX use AudioManager and saved preferences; missing clips are safe and reported as optional warnings. No audio is supplied. Particle visibility/native simulation still needs Unity testing.
+
+### Generation, preservation and Undo
+
+Assets are created only when the user runs Master under Assets/GameFactory/Generated/Level1: eight URP Lit materials, a procedural radial texture, URP particle material, a persistent default Input System action asset and eight UI action-reference assets. This avoids transient action references disappearing on scene reload. New modules bind the persistent asset; existing compatible modules and user assignments are preserved. Confirm the pinned Input System package importer/API and saved bindings in Unity.
+
+Scene containers group environment, lighting/visuals, VFX and UI; player, coin, obstacle and finish children stay under their original gameplay owners. Primitive decoration colliders are removed immediately using Undo, leaving original physics untouched. Parent-scale compensation is applied only on first creation. Built-in prototype materials/renderers can be upgraded/hidden; authored materials/models and camera/custom directional lighting are preserved. Existing generated transforms/materials/styles are not overwritten. Unexpected asset types, unowned same-name children, duplicate owners, custom Canvas ambiguity and conflicting/broken references fail safely rather than merge blindly.
+
+Scene changes use Undo creation/addition/recording, persistent button listeners and explicit dirty marking. Missing owned CanvasScaler/Raycaster can be repaired without duplicate components. Presentation failure attempts group rollback; previously completed core/build passes and newly created assets remain. Normal scene Undo does not undo asset creation or shared build-list edits. Review Console, save manually and commit Unity-generated assets/metadata only after testing. Custom generated UI can be edited in place; replacing it wholesale requires deliberate reference/binding migration.
+
+### Current audit and unresolved items
+
+Static checks cover all **31 C# files**, legal partial declarations, eleven menus, exact serialized manager/bridge fields, void button methods, subscription/unsubscription pairs, assembly boundaries and 28 read-only validation methods. Protected diff checks confirm original gameplay scripts, scene, assets, metadata, packages and build configuration are unchanged. Source-reviewed Unity 6000 UnityEvent APIs and Input System source for persistent action handling; this is not semantic compilation of the pinned package.
+
+Fixed during source review: persistent input assets replace transient defaults; duplicate coin entries cannot multiply callbacks; repeated Settings opening preserves prior pause state; disabled legacy input modules do not falsely conflict; existing custom models are preserved; coin dimensions follow original collider bounds; missing owned UI helper components repair safely; broken reference IDs are preserved/reported; disabled required managers are errors. Generated particles remain bounded and no currency/provider/reset calls were added.
+
+The public validator ends with CRITICAL ERRORS FOUND for errors, LEVEL 1 SETUP INCOMPLETE for missing required visuals/UI/VFX, otherwise READY FOR LEVEL 1 PLAY TEST. Optional audio/catalog/next-level warnings remain visible without blocking readiness. It inspects component/reference/button structure, not runtime delivery, shader quality, physics cooking, asset serialization, native Undo or platform performance.
+
+**All pending Unity verification:** import/compilation, Play Mode, physics, material rendering, VFX, UI layout/input/visual quality, save/reopen and reload behavior, repeated execution/Undo/Redo and player builds. Existing custom UI/modules may need manual migration; Input System import may fail; legacy fonts and touch/safe-area layout need review. Primitive geometry/material counts need mobile profiling. Transform-based movement still risks tunneling through thin triggers. There is no whole-command asset/scene transaction, no pooling reset, no multi-reason pause stack, no professional audio or art, and no trusted persistence/security improvement. Main-thread event/provider dispatch remains required. Mission, ads, analytics and remote-config gameplay integration remains deliberately absent.
+
+Temporary/replace later: primitive character/procedural animation, generated environment, UI styling and basic VFX. Preserve gameplay, state architecture, automation, persistence ownership and service abstractions. PlayerPrefs remains editable/nontransactional prototype storage, not secure production currency or entitlement storage. The retained audit below documents remaining architecture/security risks in detail.
+
+## Earlier architecture automation (retained)
+
+The user reports that the original runner movement/camera, coin/score, obstacle/game-over, finish completion and MainGame build inclusion were verified in Unity. The committed scene now includes those components and references, Player's kinematic/gravity-free Rigidbody, contact triggers and script metadata; MainGame follows SampleScene in the shared enabled build list. There is no next enabled level. Neither the earlier architecture pass nor the Level 1 code task changes that scene directly, existing runtime scripts, Build Settings, existing metadata, packages or verified gameplay values.
+
+The earlier architecture pass modified GameFactorySetup.cs and these guides without creating files. The current Level 1 extension adds the six files documented above. Editor automation runs only when the user invokes its menu commands; there is no import-time setup, ExecuteAlways component or runtime Editor dependency. The tool is now one static partial class across three Editor files; existing commands retain their setup/discovery contracts.
 
 **Workflow:** Codex → GitHub → GitHub Desktop Pull → Unity → Tools > Sajid Game Factory > Setup / Repair Entire Game → Validate Current Game Setup → Play Test.
 
@@ -22,7 +67,7 @@ Only `Assets/Editor/GameFactorySetup.cs`, README.md and the two Game Factory gui
 | Validate Current Game Setup | Read component/serialized snapshots, scene ownership/activation, Player/camera/contact refs, triggers/shapes/layers, manager deps, build status, source roles, catalog/mission definitions, services and UI refs. Never call preference-repairing runtime getters, claim/save methods, providers or UnityEvents. |
 | Existing obstacle/finish/build commands | Existing behavior retained. Finish warning now reads a build-list snapshot without invoking the profile's repair-capable getter. Build-list edits remain a separately requested menu operation. |
 
-The validator emits `GAME FACTORY VALIDATION`, individual `PASS:`, `WARNING:`, `ERROR:` lines, then exactly one final state: `READY FOR PLAY TEST` only when no warning/error was recorded; `SETUP INCOMPLETE` for warnings; `CRITICAL ERRORS FOUND` for errors. "Ready" is permission to proceed to a manual test, not proof of successful C# compilation, physics, gameplay, complete event integration or a player build. Missing optional configuration can leave the report incomplete while the existing runner still works.
+The public validator now emits the Level 1 readiness states described above. Internal architecture preflight still distinguishes its own warnings from errors. "Ready" is permission to proceed to a manual test, not proof of successful C# compilation, physics, gameplay, complete event integration or a player build. Missing optional configuration can leave the report incomplete while the existing runner still works.
 
 Core dependency edges inspected against current serialized fields:
 
@@ -34,7 +79,7 @@ Core dependency edges inspected against current serialized fields:
 - AdsManager.analyticsManager → AnalyticsManager (optional).
 - FinishLine.levelManager → LevelManager; Obstacle.gameManager → GameManager; Coin.scoreManager → ScoreManager; CameraFollow.target → Player Transform remain compatible.
 
-No new runtime event subscriptions were added. LevelManager still owns its GameManager subscription/unsubscription; C# UI/HUD/save/mission/analytics/audio adapters remain future work. Coin scores remain distinct from coin counts and reward currency. RemoteConfig does not automatically apply defaults to movement, rewards, preferences or ad policy. No duplicate ad-currency subscriber is installed.
+Earlier architecture-only automation added no subscriptions. LevelManager retains its GameManager subscription, and the new Level1PresentationController owns the bounded presentation subscriptions documented above. Mission/economy/service gameplay adapters remain future work. Coin scores remain distinct from coin counts and reward currency. RemoteConfig does not automatically apply defaults to movement, rewards, preferences or ad policy. No duplicate ad-currency subscriber is installed.
 
 ### Read-only build inspection and Undo
 
@@ -42,7 +87,7 @@ Unity 6's `EditorBuildSettings.scenes` honors the active Build Profile, but the 
 
 Scene setup uses Undo component/creation/object records, prefab-instance override recording, flushed groups, dirty marking only after actual edits, and best-effort rollback on exceptions. The build tool has object Undo for an active profile override asset; shared EditorBuildSettings edits lack a normal object Undo target and log that limitation. Scene Undo cannot undo shared build-list changes or runtime PlayerPrefs. Profile changes remain dirty for saving. No whole-master atomicity is claimed.
 
-### Current audit evidence, fixes and remaining risks
+### Earlier architecture audit evidence (historical; still relevant)
 
 - Re-read all 24 runtime/helper C# scripts and the expanded Editor tool. Static checks cover 25 files, unique declarations and balanced source structure, exact dependency/reference contracts, Editor/runtime assembly boundaries, all ten menus and the read-only validator's 25 reachable local static methods. No detected mutation, provider, currency or preference call exists in that validation path. These checks are not C# semantic compilation.
 - Corrected a source-review compile risk in the new code: a short-circuit condition could leave its `out` reason unassigned; it now initializes the reason before the condition. A GameObject is checked via `panel.scene`, not a Component-only accessor. Neither issue was claimed as compiler-tested.
