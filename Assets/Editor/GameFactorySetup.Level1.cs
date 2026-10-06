@@ -47,6 +47,7 @@ public static partial class GameFactorySetup
             Level1PresentationController bridge = PresentationBridge(build);
             Level1VFX(build, bridge);
             Level1UI(build, bridge);
+            FantasyEnvironmentPass(build);
             Undo.FlushUndoRecordObjects();
             Undo.CollapseUndoOperations(group);
             EditorSceneManager.MarkSceneDirty(scene);
