@@ -514,6 +514,182 @@ public static class GameFactorySetup
         }
     }
 
+    private const string MenuRoot = "Tools/Sajid Game Factory/";
+    private static readonly Type[] CoreManagerTypes =
+    {
+        typeof(GameManager), typeof(LevelManager), typeof(PauseManager), typeof(SaveManager),
+        typeof(AudioManager), typeof(SettingsManager), typeof(RewardManager), typeof(DailyRewardManager),
+        typeof(ShopManager), typeof(SkinManager), typeof(MissionManager), typeof(AnalyticsManager),
+        typeof(AdsManager), typeof(RemoteConfigManager)
+    };
+
+    private sealed class SetupContext
+    {
+        public Scene Scene;
+        public GameObject Managers;
+        public bool Changed;
+        public readonly Dictionary<Type, Component> Components = new Dictionary<Type, Component>();
+        public Component Get(Type type) => Components.TryGetValue(type, out Component value) ? value : null;
+    }
+
+    [MenuItem(MenuRoot + "Setup Core Managers")]
+    public static void SetupCoreManagers()
+    {
+        RunManagerSetup("Core Managers", CoreManagerTypes, WireManagerDependencies);
+    }
+
+    private static bool TryGetSetupScene(out Scene scene)
+    {
+        scene = SceneManager.GetActiveScene();
+        if (EditorApplication.isPlayingOrWillChangePlaymode || EditorApplication.isCompiling ||
+            EditorApplication.isUpdating || PrefabStageUtility.GetCurrentPrefabStage() != null ||
+            !scene.IsValid() || !scene.isLoaded || scene.path != MainGameScenePath)
+        {
+            Debug.LogError("Game Factory: open Assets/Scenes/MainGame.unity in Edit Mode outside Prefab Mode, and wait for imports/compilation.");
+            return false;
+        }
+        return true;
+    }
+
+    private static List<GameObject> SceneObjects(Scene scene)
+    {
+        var objects = new List<GameObject>();
+        foreach (GameObject root in scene.GetRootGameObjects())
+            foreach (Transform item in root.GetComponentsInChildren<Transform>(true)) objects.Add(item.gameObject);
+        return objects;
+    }
+
+    private static List<Component> SceneComponents(Scene scene, Type type)
+    {
+        var components = new List<Component>();
+        foreach (GameObject root in scene.GetRootGameObjects())
+            components.AddRange(root.GetComponentsInChildren(type, true));
+        return components;
+    }
+
+    private static Component UniqueComponent(Scene scene, Type type)
+    {
+        List<Component> matches = SceneComponents(scene, type);
+        return matches.Count == 1 ? matches[0] : null;
+    }
+
+    private static GameObject UniqueNamedObject(Scene scene, string name)
+    {
+        GameObject match = null;
+        foreach (GameObject item in SceneObjects(scene))
+        {
+            if (item.name != name) continue;
+            if (match != null) return null;
+            match = item;
+        }
+        return match;
+    }
+
+    private static void RunManagerSetup(string label, Type[] types, Action<SetupContext> configure)
+    {
+        if (!TryGetSetupScene(out Scene scene)) return;
+        Undo.IncrementCurrentGroup();
+        int group = Undo.GetCurrentGroup();
+        Undo.SetCurrentGroupName("Game Factory: " + label);
+        try
+        {
+            var context = new SetupContext { Scene = scene };
+            var namedManagers = SceneObjects(scene).FindAll(item => item.name == "Managers");
+            if (namedManagers.Count > 1) throw new InvalidOperationException("Multiple Managers objects; refusing to guess an owner.");
+            if (namedManagers.Count == 0)
+            {
+                context.Managers = new GameObject("Managers");
+                Undo.RegisterCreatedObjectUndo(context.Managers, "Create Managers");
+                SceneManager.MoveGameObjectToScene(context.Managers, scene);
+                context.Changed = true;
+                Debug.LogWarning("Game Factory: missing Managers; created an identity root without changing existing objects.");
+            }
+            else context.Managers = namedManagers[0];
+
+            foreach (Type type in types)
+            {
+                List<Component> existing = SceneComponents(scene, type);
+                Component component = null;
+                if (existing.Count > 1)
+                    Debug.LogWarning("Game Factory: multiple " + type.Name + " owners; no additional component or guessed wiring was created.");
+                else if (existing.Count == 1)
+                {
+                    component = existing[0];
+                    if (component.gameObject != context.Managers)
+                        Debug.LogWarning("Game Factory: reusing existing " + type.Name + " outside Managers; no duplicate added.", component);
+                }
+                else
+                {
+                    component = Undo.AddComponent(context.Managers, type);
+                    if (component == null) throw new InvalidOperationException("Failed to add " + type.Name);
+                    context.Changed = true;
+                }
+                context.Components[type] = component;
+            }
+            configure(context);
+            if (context.Changed) EditorSceneManager.MarkSceneDirty(scene);
+            Undo.FlushUndoRecordObjects();
+            Undo.CollapseUndoOperations(group);
+            Debug.Log("Game Factory: " + label + " pass finished. " +
+                (context.Changed ? "Review and save MainGame manually. " : "No changes needed. ") +
+                "Warnings may indicate incomplete setup; run Validate Current Game Setup after preparation.");
+        }
+        catch (Exception exception)
+        {
+            Debug.LogError("Game Factory: partial " + label + " failure; attempting to undo this pass. Inspect Console/scene before saving.");
+            Debug.LogException(exception);
+            try { Undo.FlushUndoRecordObjects(); Undo.RevertAllDownToGroup(group); }
+            catch (Exception undoException) { Debug.LogException(undoException); }
+        }
+    }
+
+    private static void WireManagerDependencies(SetupContext context)
+    {
+        GameObject playerObject = UniqueNamedObject(context.Scene, "Player");
+        Component player = playerObject != null ? playerObject.GetComponent<PlayerController>() : null;
+        AssignMissingReference(context, context.Get(typeof(GameManager)), "playerController", player);
+        Wire(context, typeof(GameManager), "pauseManager", typeof(PauseManager));
+        Wire(context, typeof(LevelManager), "gameManager", typeof(GameManager));
+        Wire(context, typeof(LevelManager), "pauseManager", typeof(PauseManager));
+        Wire(context, typeof(AudioManager), "saveManager", typeof(SaveManager));
+        Wire(context, typeof(SettingsManager), "saveManager", typeof(SaveManager));
+        Wire(context, typeof(SettingsManager), "audioManager", typeof(AudioManager));
+        Wire(context, typeof(DailyRewardManager), "rewardManager", typeof(RewardManager));
+        Wire(context, typeof(ShopManager), "rewardManager", typeof(RewardManager));
+        Wire(context, typeof(MissionManager), "rewardManager", typeof(RewardManager));
+        Wire(context, typeof(AdsManager), "analyticsManager", typeof(AnalyticsManager));
+    }
+
+    private static void Wire(SetupContext context, Type owner, string field, Type target)
+    {
+        Component component = context.Get(owner);
+        if (component == null) return;
+        Component dependency = context.Get(target) ?? UniqueComponent(context.Scene, target);
+        AssignMissingReference(context, component, field, dependency);
+    }
+
+    private static void AssignMissingReference(SetupContext context, Component owner, string field, UnityEngine.Object target)
+    {
+        if (owner == null) return;
+        SerializedProperty property = new SerializedObject(owner).FindProperty(field);
+        if (property == null || property.propertyType != SerializedPropertyType.ObjectReference)
+            throw new InvalidOperationException("Incompatible Inspector API: " + owner.GetType().Name + "." + field);
+        if (property.objectReferenceValue != null || property.objectReferenceInstanceIDValue != 0)
+        {
+            if (target == null || property.objectReferenceValue != target)
+                Debug.LogWarning("Game Factory: preserved configured " + owner.GetType().Name + "." + field + "; verify its owner/target manually.", owner);
+            return;
+        }
+        if (target == null)
+        {
+            Debug.LogWarning("Game Factory: no unique target for " + owner.GetType().Name + "." + field + "; reference left empty.", owner);
+            return;
+        }
+        if (!HasCompatibleReference(owner.GetType(), field, target.GetType()))
+            throw new InvalidOperationException("Incompatible assignment type: " + owner.GetType().Name + "." + field);
+        SetReference(owner, field, target, ref context.Changed);
+    }
+
     private static bool HasCompatibleReference(Type owner, string fieldName, Type valueType)
     {
         FieldInfo field = owner.GetField(fieldName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
