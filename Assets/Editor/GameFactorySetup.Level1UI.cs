@@ -470,6 +470,7 @@ public static partial class GameFactorySetup
         }
         foreach (string field in new[] { "backgroundMusic", "coinSFX", "hitSFX", "finishSFX", "uiClickSFX" })
             if (ReadReference(bridge, field) == null) report.Warning("Optional audio clip missing: " + field + "; silence is safe.");
+        ValidateFantasyPresentation(scene, report);
         report.Pass("Level 1 structural inspection performed without playing VFX, invoking buttons or editing generated assets.");
         report.Pass("Optional missing audio, next level and shop/mission catalogs are warnings; they do not alone block Level 1 play-test readiness. Blocking Level 1 presentation gaps are tracked separately.");
     }

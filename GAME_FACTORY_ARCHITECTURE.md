@@ -1,6 +1,35 @@
 # Game Factory architecture and audit
 
-## Current Level 1 Master extension
+## Fantasy/wolf extension (current pass)
+
+The first action was fetch/rebase onto `1b043ad` (Generate and verify Level 1 Master), with no conflicts. That commit includes the user's generated scene, materials/input assets and metadata. This code pass does not rewrite those files. It extends the same master and adds **Upgrade / Repair Level 1 Fantasy Presentation** as an alias; there is no import-time scene generation.
+
+| File | Change / responsibility |
+| --- | --- |
+| GameFactorySetup.Fantasy.cs (new Editor partial) | Separate Fantasy palette, bridge/supports/rails/crystals/runes, geometric cliffs/static waterfall ribbons, ownership-checked legacy retirement and known-generated material reference migration. |
+| GameFactorySetup.FantasyRunner.cs (new Editor partial) | White-wolf primitive hierarchy, tiny shared six-triangle ear Mesh asset, jacket/outfit/accent slots, explicit animator/controller references. Preserves authored models. |
+| GameFactorySetup.FantasyPolish.cs (new Editor partial) | Coin emblems/rim details, hazard frames, finish crown and generated UI cards/rules; guarded default color/counter/proportional-layout/transition migration and HUD safe-area component. Existing listeners/references remain unchanged. |
+| GameFactorySetup.FantasyValidation.cs (new Editor partial) | Read-only fantasy existence/activation/selection/physics/animation/UI checks and honest visual-review warning. |
+| GameFactorySetup.Level1.cs (existing) | Four calls after original UI preparation: fantasy environment → wolf → feedback/gate → UI. Uses the existing presentation Undo group and final validation. |
+| GameFactorySetup.Level1UI.cs (existing) | Adds the read-only fantasy validator to the existing validation path. |
+| RunnerPresentationController.cs (new runtime) | Generated/custom visual selection under PlayerVisual; rejects root/physics/overlapping roots, leaves Player gameplay intact, exposes safe VisualChanged and explicit Head/Body/Outfit/Accent material application. No skin ownership logic or PlayerPrefs. |
+| Level1HUDSafeArea.cs (new runtime) | Insets only the HUD anchors to Screen.safeArea when area/resolution changes, with no frame allocations; restores baseline anchors on disable. No Edit Mode execution. |
+| SimpleRunnerVisual.cs (existing runtime visual helper) | Optional validated child poseRoot, bounded finite bob/lateral lean, position reset on enable and rest-pose restoration. Existing old proxies have no poseRoot, retaining their prior behavior. No Player movement or controller changes. |
+| README.md / GAME_FACTORY_SETUP.md / this guide | Fantasy approximation, migration, swap instructions, Undo/asset limitations and exact pending Unity checks. |
+
+No original gameplay, UI/state/economy/service manager script is changed. No scene, prefab, existing asset/meta, package or build list is changed in Codex. References/events/persistence/time-scale authority remain those documented below. AudioManager's five optional bridge clip hooks and the three existing bounded ParticleSystems are reused without audio downloads or additional runtime effects.
+
+The tool generates thirteen Fantasy materials and one flat-shaded WolfEar Mesh asset only inside Unity. Emission is shader-based brightness, not bloom. Geometric waterfalls are deliberately opaque/static to avoid transparent sorting, overdraw and fluid simulations. Bridge supports imply elevation below the verified road rather than moving Ground/Player/contacts. Environment geometry is approximately 140 simple shapes; other details add renderers. Existing SRP batching is not a performance guarantee: target-device profiling and possible future mesh combining/LOD are required.
+
+Migration is explicit and ownership-based: old owned RunnerProxy and environment decorations are retained inactive; only known generated material references are redirected. Custom/edited old geometry remains on those objects, so review before saving. Unexpected custom components under legacy decoration stop retirement; author-created player models skip the wolf. Generated-child/asset identity collisions abort rather than overwrite. Repeated calls reuse paths, identities, components and listeners; authored slot arrays, custom material references/styles and camera/lighting are preserved. Whole-pass asset/scene atomicity remains unavailable; generated assets and earlier core steps survive presentation rollback.
+
+RunnerPresentationController has no singleton or scene search. SelectVisual validates child roots before toggling, emits via GameFactoryEvents' bounded exception-isolated notification, and reports failure without moving Player. ApplyMaterials touches only configured descendant Renderers and uses shared materials. Slot arrays are generated only when empty. SkinManager remains a separate data authority; a future equipment adapter can listen to its selection event and call presentation APIs. Supply a real rig/Animator and remove/disable procedural proxy animation deliberately; no FBX/skeleton is generated.
+
+New static checks examine **37 C# files, twelve menu registrations and 29 read-only validation helpers**. Protected diff checks compare against `1b043ad`: only SimpleRunnerVisual is extended among existing runtime scripts, all gameplay/scene/assets/meta/packages/build settings unchanged. Exact new serialized fields and optional material slots, event isolation, no runtime Editor APIs, child-only animation and safe-area arithmetic were source-reviewed. Corrected a source-review compile risk in the safe-area Vector2 arithmetic before committing; these checks are not C# compilation or Unity execution.
+
+**Remaining uncertainty:** no reference images are accessible in this task, so likeness follows the written description. Native mesh/rendering/shader behavior, Unity serialization/Undo, import/compilation, UI color/input/safe-area behavior, pause/reload, physics and mobile/player builds are pending Unity verification. No claimed reproduction of a professional character/environment or verified visual quality. Local PlayerPrefs security/transaction limitations are unchanged, and no ads/analytics/remote-config/network/skin-shop coupling was added.
+
+## Earlier Level 1 Master extension (retained)
 
 **Workflow:** Codex → GitHub → Unity Pull → Tools > Sajid Game Factory > Build / Repair Level 1 Master → Validate Current Game Setup → Play Test → Visual review → Lock Level 1 → Duplicate architecture for future levels.
 
