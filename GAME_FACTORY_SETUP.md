@@ -1,16 +1,57 @@
 # Game Factory Unity setup checklist
 
+## 0. Automation workflow and safe boundaries
+
+**Codex → GitHub → GitHub Desktop Pull → Unity → Tools > Sajid Game Factory > Setup / Repair Entire Game → Validate Current Game Setup → Play Test**
+
+1. Pull the pushed commits in GitHub Desktop. Open the existing project in pinned Unity 6000.0.84f1, resolve import/compile errors, and open `Assets/Scenes/MainGame.unity` as the active scene in Edit Mode, outside Prefab Mode. This cloud task cannot execute Unity.
+2. Keep a clean/reviewable scene before running automation. Run **Tools > Sajid Game Factory > Validate Current Game Setup** first for a read-only baseline.
+3. Run **Setup / Repair Entire Game**. Its preflight verifies Player, CameraFollow, Rigidbody/colliders, ScoreManager and Coin_* contacts. Critical missing prerequisites, duplicate owners and conflicting gameplay references stop the master pass before edits. It does not repair missing Player/Camera/Score/Coin systems by inventing them.
+4. The master then runs obstacle setup, MainGame build inclusion, finish/level setup, core managers, audio/settings, economy, optional service placeholders, UI preparation, and final validation in that order. Individual steps can fail/roll back independently. Earlier completed steps are not a whole-game transaction; inspect warnings and the final report rather than assuming every step succeeded.
+5. Save MainGame manually after reviewing changes. A profile override is marked dirty and must be saved; the shared build list is updated through Unity's native EditorBuildSettings API. No automatic scene save, Build Profile switch, scene reordering or creation of a next level occurs.
+6. Run validation again. Its final state is exactly one of `READY FOR PLAY TEST` (no errors/warnings), `SETUP INCOMPLETE` (warnings), or `CRITICAL ERRORS FOUND` (errors). Missing catalogs, music, UI or a next level can leave setup incomplete while already verified runner systems remain usable. These are structural results, not compilation/physics/build certification.
+7. Run the same setup twice, compare component/reference counts and gameplay values, then test Undo/Redo and save/reopen persistence. Do this before relying on the tool for repeated repairs.
+
+All menu commands are under **Tools > Sajid Game Factory**:
+
+| Command | Behavior |
+| --- | --- |
+| Setup Obstacle & Game Over | Existing command: reuse/create Managers, wire GameManager, configure Player body and Obstacle_* triggers. |
+| Ensure MainGame In Build Scenes | Existing command: append MainGame or re-enable its entry in the active list, preserve all other entries/order, reject unsafe states. |
+| Setup Finish Line & Level Progression | Existing command: requires Managers/GameManager, Player physics and FinishLine; add/wire LevelManager/FinishLine, configure triggers, warn about scene progression. |
+| Setup Core Managers | Add/reuse the 14 core managers listed below and fill only empty exact unique dependencies, including PauseManager references in both loaders. |
+| Setup Audio & Settings | Add/reuse Save/Audio/Settings managers, fill dependencies, create two missing sources only when roles are unambiguous. New Music: Loop on; new SFX: Loop off; both Spatial Blend 0 and Play On Awake off. |
+| Setup Economy Systems | Add/reuse Reward/Daily/Shop/Skin/Mission managers, assign RewardManager, warn about empty catalogs. No IDs/prices/balancing/assets or PlayerPrefs writes. |
+| Setup Services Placeholders | Add/reuse Analytics/Ads/RemoteConfig, optionally wire Analytics. New ads default disabled; preserve and warn about existing mock mode. No SDK, provider request, network call or currency grant. |
+| Prepare UI Architecture | Add/reuse UIManager/HUDController, wire only compatible unique existing panels/text using the names below, log missing-element checklist. No visual creation or event bridge. |
+| Setup / Repair Entire Game | Run verification and setup passes in dependency order, then authoritative final validation. |
+| Validate Current Game Setup | Read-only scene/components/references/build/audio/catalog/services/UI inspection. No Undo, SetDirty, scene save, gameplay calls, preference repair or provider invocation. |
+
+New setup passes reuse unique existing components even outside Managers and warn about location. They do not create another owner when duplicates already exist. Non-null references and broken serialized references are preserved with warnings. Disabled objects/components remain disabled. Resolve these cases manually; separate legacy obstacle/finish commands retain their existing ownership rules, and master preflight refuses incompatible ownership.
+
+Close other loaded scenes containing managers before running the new setup/master commands; they refuse additive-scene manager duplication. Validation reports these external owners as errors. Additional loaded visual scenes without manager owners do not prevent setup.
+
+**Undo:** scene passes use Undo.AddComponent, creation/object recording, grouped operations, prefab-instance override recording, explicit scene dirty marking and best-effort rollback on exceptions. Existing Build Profile assets have object Undo; shared build-list changes have no normal object Undo target, logged by the command. Scene Undo does not undo a shared build change or PlayerPrefs created later in Play Mode. Save reviewed profile changes separately.
+
+**Audio preservation:** assigned sources keep all settings/clips/volume/mixer routing. One unassigned source for one empty role can be reused unchanged. Multiple unassigned sources or one source for two unknown roles are ambiguous: the tool adds nothing and asks for explicit Music/SFX assignment. New sources never receive a clip. Review existing sources if warnings recommend different loop/spatial/awake settings.
+
+**UI discovery convention:** independent RectTransform panels under a Canvas named `MainMenuPanel`, `GameplayHUDPanel`, `PauseMenuPanel`, `GameOverPanel`, `LevelCompletePanel`, `SettingsPanel`; legacy Unity UI Text objects named `ScoreText`, `BestScoreText`, `LevelText`, `CoinCountText`. A candidate must be unique across MainGame. Panels cannot contain managers/Player/Camera/Score or overlap other panel roots. Different names, TMP text and ambiguous layouts need explicit Inspector assignments. The tool never changes layout, fonts, colors, anchors, graphics or panel activation. Review initial UI state: it remains MainMenu by default and does not stop automatic Player movement.
+
+**Intentionally manual:** visual design; models; animation; final UI and button/event adapters; clips/music; mission definitions/balancing; shop IDs/prices; skin IDs/model swapping; next-level scene creation; real ads and analytics SDKs; server/cloud save; Android/WebGL/iOS platform modules, signing, store settings and final builds.
+
+**Exact next Unity test sequence:** pull → import/clear Console → open MainGame → read-only baseline validation → master setup → inspect warnings/references/counts → save scene/profile → run master twice and test Undo/Redo → revalidate → test movement/camera/coins → separate runs for obstacle GameOver and finish LevelComplete → test restart/next/final-level refusal → test pause/reload → audio/settings → disposable economy/mission saves → disabled service placeholders → manual UI event delivery → development player build. No Unity compilation, Play Mode, physics or build success was verified in Codex.
+
 ## 1. Open and import
 
 1. Open the existing checkout using Unity **6000.0.84f1**, revision `78ab6fc243d5`. Do not upgrade or rename scripts as part of initial verification.
 2. Resolve the existing packages and clear every Console compile/import error before configuring objects. Input System 1.20.0 and Unity UI 2.0.0 are declared and match the lockfile; that does not prove package compatibility or registry access. AI/GDK/analytics/IAP packages already in the manifest may have their own platform requirements.
 3. Keep **Active Input Handling = Input System Package (New)**; the serialized value is currently `1`. Keyboard input requires the Input System package, not the legacy Input Manager.
-4. Let Unity generate missing script `.meta` files and commit them after import. Preserve the existing PlayerController and CameraFollow GUIDs. Check for Missing Script components; do not move or rename files yet.
+4. Existing runtime and Editor scripts now have committed `.meta` files. Preserve their GUIDs and check for Missing Script components on import; do not move or rename files yet.
 5. Open `Assets/Scenes/MainGame.unity`. This checklist describes changes to make later in Unity; the architecture audit did not modify this scene.
 
 ## 2. Create manager objects and assign references
 
-Create an always-active **SceneManagers** object outside every UI panel. Add one of each scene-owned component below; multiple different component types can share this object. `[DisallowMultipleComponent]` prevents duplicate types on one GameObject, not duplicate objects elsewhere.
+Reuse the always-active **Managers** object outside every UI panel (automation creates it if absent). Add one of each scene-owned component below; multiple different component types can share this object. `[DisallowMultipleComponent]` prevents duplicate types on one GameObject, not duplicate objects elsewhere.
 
 | Component | Inspector references/configuration |
 | --- | --- |
@@ -24,6 +65,7 @@ Create an always-active **SceneManagers** object outside every UI panel. Add one
 | AudioManager | SaveManager; separate Music and SFX AudioSources |
 | SettingsManager | The same SaveManager; AudioManager |
 | UIManager | Six panel roots; an initial state appropriate to this scene |
+| HUDController | Score/best/level/count Text references or compatible string UnityEvents |
 | ShopManager | RewardManager; unique item IDs and nonnegative integer prices |
 | SkinManager | Valid default skin ID; additional skin IDs |
 | MissionManager | RewardManager; active MissionDefinition assets |
@@ -52,11 +94,11 @@ Assign all references before enabling objects. If LevelManager's GameManager ref
 5. Verify one award despite multiple Player colliders. Collected coins disable themselves; finish lines latch completion. These flags are reset by scene recreation, not by re-enabling pooled objects. Object pooling/reset APIs are future work.
 6. Coin `Collected(int scoreValue)` fires once after collection; report **one** coin to missions/count UI, not scoreValue coins. Coins add score only; reward currency is separate.
 
-Current MainGame serialized colliders are non-trigger and the Player has no Rigidbody. All of these setup steps remain unverified until completed in Unity.
+Current MainGame contains Player's kinematic/gravity-free Rigidbody and coin/obstacle/finish trigger configuration committed after prior user testing. Preserve that setup. New automation behavior, contacts at different speeds/layers and lifecycle conditions still require Unity verification.
 
 ## 5. Build Profiles / scene list
 
-1. In Unity 6 **Build Profiles → Scene List** (formerly Build Settings), include MainGame and each gameplay level in intended consecutive build-index order. Only SampleScene is currently enabled.
+1. In Unity 6 **Build Profiles → Scene List** (formerly Build Settings), keep gameplay levels in intended consecutive build-index order. The current shared list contains SampleScene followed by enabled MainGame; no following level is present. Ensure MainGame In Build Scenes respects the active profile override/shared list but never creates a next level or reorders entries.
 2. Do not insert a menu/utility scene between gameplay levels: LoadNextLevel uses `currentIndex + 1`, not scene names or a separate level catalog. Indices are zero-based; displayed level numbers can use index + 1.
 3. Keep GameManager/LevelManager in the gameplay scene whose index they manage. They use their own GameObject's scene, not an unrelated active scene.
 4. Assign PauseManager to both loaders. Scene-local PauseManager also resumes on disable, but a future persistent pause owner requires explicit resume before loads.
@@ -140,4 +182,4 @@ Current MainGame serialized colliders are non-trigger and the Player has no Rigi
 9. Disabled ads, explicit mock completion, cooldown/cap/timeout; analytics throwing provider; config invalid/stale callbacks and safe defaults.
 10. Test duplicate manager setup on different GameObjects, no-domain-reload Play Mode, device pause/resume, and supported build platforms. Confirm there is one intended service owner and no duplicate reward adapter.
 
-These checks are pending until Unity is opened; none are claimed as runtime-passed by the source audit.
+These expansion/regression checks are pending until Unity is opened. Prior runner behavior was reported verified by the user; the cloud source audit does not claim execution of the new menus, Unity compilation, Play Mode, physics or builds.

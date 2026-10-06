@@ -1,5 +1,65 @@
 # Game Factory architecture and audit
 
+## Current automation expansion
+
+The user reports that the original runner movement/camera, coin/score, obstacle/game-over, finish completion and MainGame build inclusion were verified in Unity. The committed scene now includes those components and references, Player's kinematic/gravity-free Rigidbody, contact triggers and script metadata; MainGame follows SampleScene in the shared enabled build list. There is no next enabled level. This task does not change that scene, Build Settings, runtime scripts, visuals, existing metadata, packages or those gameplay behaviors.
+
+Only `Assets/Editor/GameFactorySetup.cs`, README.md and the two Game Factory guides are modified. No repository files are created by this task. Editor automation runs only when the user invokes its menu commands; there is no import-time setup, ExecuteAlways component or runtime Editor dependency. The tool remains one existing file with separate setup, discovery/wiring and validation helpers.
+
+**Workflow:** Codex → GitHub → GitHub Desktop Pull → Unity → Tools > Sajid Game Factory > Setup / Repair Entire Game → Validate Current Game Setup → Play Test.
+
+### Editor responsibilities and contracts
+
+| Layer / command | Responsibility and limits |
+| --- | --- |
+| Setup Core Managers | Reuse/create Managers; add/reuse Game/Level/Pause/Save/Audio/Settings/Reward/Daily/Shop/Skin/Mission/Analytics/Ads/RemoteConfig. Unique managers elsewhere are reused, not moved. Duplicate owners are left alone and reported. |
+| Serialized wiring | Exact field/type checks, unique target discovery, empty-slot assignment only. Non-null/broken references, disabled components, catalogs and gameplay values are preserved; ambiguities require manual repair. Reflection checks metadata only; it does not invoke gameplay or access internal runtime persistence helpers. |
+| Setup Audio & Settings | Prepare Save/Audio/Settings dependencies and two distinct source roles. New sources use 2D audio, Play On Awake off, Music loop on / SFX loop off. Assigned sources and one unambiguous reusable source remain unchanged. Unknown roles are never inferred from component order. |
+| Setup Economy Systems | Reward dependencies for Daily/Shop/Mission; existing SkinManager. No IDs, prices, assets, claims, selected skin, balances or local-save mutation. Empty catalogs are explicit warnings. |
+| Setup Services Placeholders | Optional Analytics/Ads/RemoteConfig components and Ads' optional analytics link. Preserve existing flags/config. New ads retain disabled default. No provider injection, fetch, SDK, network, analytics report or reward adapter. |
+| Prepare UI Architecture | UIManager/HUDController and unique existing compatible named panel/Text references. Reject panel ancestry that can disable gameplay owners and duplicate/nested panel roots. No Canvas/design/layout/text-content/activation changes. TMP uses manual string UnityEvent binding. |
+| Setup / Repair Entire Game | Verify Player/camera/physics/score/coins before edits; refuse critical prerequisites, duplicate service owners and configured gameplay targets that legacy commands would replace. Execute the requested setup order and finish with read-only validation. Separate Undo groups mean partial success is possible. |
+| Validate Current Game Setup | Read component/serialized snapshots, scene ownership/activation, Player/camera/contact refs, triggers/shapes/layers, manager deps, build status, source roles, catalog/mission definitions, services and UI refs. Never call preference-repairing runtime getters, claim/save methods, providers or UnityEvents. |
+| Existing obstacle/finish/build commands | Existing behavior retained. Finish warning now reads a build-list snapshot without invoking the profile's repair-capable getter. Build-list edits remain a separately requested menu operation. |
+
+The validator emits `GAME FACTORY VALIDATION`, individual `PASS:`, `WARNING:`, `ERROR:` lines, then exactly one final state: `READY FOR PLAY TEST` only when no warning/error was recorded; `SETUP INCOMPLETE` for warnings; `CRITICAL ERRORS FOUND` for errors. "Ready" is permission to proceed to a manual test, not proof of successful C# compilation, physics, gameplay, complete event integration or a player build. Missing optional configuration can leave the report incomplete while the existing runner still works.
+
+Core dependency edges inspected against current serialized fields:
+
+- GameManager.playerController → PlayerController; GameManager.pauseManager → PauseManager.
+- LevelManager.gameManager → GameManager; LevelManager.pauseManager → PauseManager.
+- AudioManager.saveManager → SaveManager; AudioManager.musicSource / sfxSource → distinct AudioSources.
+- SettingsManager.saveManager → SaveManager; SettingsManager.audioManager → AudioManager.
+- DailyRewardManager.rewardManager, ShopManager.rewardManager, MissionManager.rewardManager → RewardManager.
+- AdsManager.analyticsManager → AnalyticsManager (optional).
+- FinishLine.levelManager → LevelManager; Obstacle.gameManager → GameManager; Coin.scoreManager → ScoreManager; CameraFollow.target → Player Transform remain compatible.
+
+No new runtime event subscriptions were added. LevelManager still owns its GameManager subscription/unsubscription; C# UI/HUD/save/mission/analytics/audio adapters remain future work. Coin scores remain distinct from coin counts and reward currency. RemoteConfig does not automatically apply defaults to movement, rewards, preferences or ad policy. No duplicate ad-currency subscriber is installed.
+
+### Read-only build inspection and Undo
+
+Unity 6's `EditorBuildSettings.scenes` honors the active Build Profile, but the profile scene getter can repair/remove invalid records. Validation and finish warnings therefore inspect profile `m_Scenes` via SerializedObject (`m_path` / `m_enabled`) without applying changes; the shared list uses `EditorBuildSettings.globalScenes`. Unknown serialized layouts cause a clear inspection failure instead of guessing. These field layouts match the reviewed Unity 6000.0 reference source but require pinned-editor verification.
+
+Scene setup uses Undo component/creation/object records, prefab-instance override recording, flushed groups, dirty marking only after actual edits, and best-effort rollback on exceptions. The build tool has object Undo for an active profile override asset; shared EditorBuildSettings edits lack a normal object Undo target and log that limitation. Scene Undo cannot undo shared build-list changes or runtime PlayerPrefs. Profile changes remain dirty for saving. No whole-master atomicity is claimed.
+
+### Current audit evidence, fixes and remaining risks
+
+- Re-read all 24 runtime/helper C# scripts and the expanded Editor tool. Static checks cover 25 files, unique declarations and balanced source structure, exact dependency/reference contracts, Editor/runtime assembly boundaries, all ten menus and the read-only validator's 25 reachable local static methods. No detected mutation, provider, currency or preference call exists in that validation path. These checks are not C# semantic compilation.
+- Corrected a source-review compile risk in the new code: a short-circuit condition could leave its `out` reason unassigned; it now initializes the reason before the condition. A GameObject is checked via `panel.scene`, not a Component-only accessor. Neither issue was claimed as compiler-tested.
+- Avoided cross-assembly compile risks by not calling internal RunnerPersistence/GameFactoryEvents from Editor code. Catalog ID checks mirror the 1–64 ASCII contract; public MissionDefinition.IsValid/GetPreviousMissionIds are read-only metadata APIs. No external UI/TMP/SDK assembly assumption was introduced.
+- Corrected build-index inspection so missing scene assets do not silently shift the inspected enabled ordering. A missing/unusable next scene is a warning, not a thrown load or fabricated level. Active profile scene reading avoids repair side effects.
+- Preserved existing configured references and sources. Broken refs, duplicate owners, conflicting gameplay ownership, ambiguous source roles and unsafe UI ancestry are reported instead of overwritten. Runtime scripts were audited but no required API/safety fix was found for this automation integration, so none were changed.
+- Added an additive-scene safety check: new setup passes refuse to add owners when another loaded scene already contains managers. Validation reports those external owners as errors. Existing legacy commands remain separately invokable with their original active-scene ownership rules.
+- Pending: compile/import the new Editor tool; native SerializedObject/property layouts; profile/global-list save and Undo/Redo; prefab overrides; repeat-command idempotency; rollback under exceptions; persistent UnityEvent method resolution; scene activation/lifecycle and no-domain-reload sessions.
+- Pending physics: mesh convex cooking is native and may fail for complex/degenerate geometry; existing shape checks cannot prove a usable cooked hull. Layer matrix checks do not fully model Unity 6 per-collider include/exclude overrides or explicit IgnoreCollision calls. Transform movement can miss thin triggers; no geometry/speed/global physics setting was changed to hide that risk.
+- Validator limits: it does not enumerate runtime C# event subscribers, prove HUD/button delivery, verify sound/SFX assets supplied by callers, evaluate saved eligibility/corruption, authenticate ad callbacks or test provider disposal/thread dispatch. Catalog/mission metadata validation does not grant economic authorization. A valid next scene asset may still be a menu/utility scene; progression intentionally uses consecutive build indices.
+- Existing PlayerPrefs schema/keys/reset ownership are unchanged: balances saturate/reject overflow as before, claims are staged before currency notifications, mission schema/aliases retain consumed claims, and resets remain scoped. Storage is still local, editable and nontransactional. A badly written future event listener can explicitly grant repeatedly or recurse; automatic wiring installs no such callbacks, and adapters must be bounded and idempotent.
+- Audio ambiguity is intentionally not repaired by guessing. Existing settings/flags may need manual changes; the master does not silently turn off an explicitly configured mock mode or rewrite audio routing. UI initial state is preserved, so default MainMenu visibility does not pause automatic Playing behavior. Manual coordination/event adapters are required.
+
+Still manual: visual design, models, animation, final UI/buttons/event bridges, music/SFX assets, mission assets/balancing, shop pricing and skin catalogs, next-level scene content, real ads/analytics SDKs, trusted time/entitlements/cloud save, and final Android/WebGL/iOS modules, build/signing/store configuration. **Unity compilation, Play Mode, physics and build success for this expansion are all pending Unity verification.**
+
+The remainder of this document records the earlier architecture audit and unchanged runtime system contracts. Its modified-file table describes that historical audit, not additional runtime changes in this automation task.
+
 ## Status and boundaries
 
 The architecture is a Unity 6 endless-runner prototype. All **23 original C# scripts under Assets/Scripts** were read/reviewed; GameFactoryEvents is a new shared notification helper. Existing tutorial/editor scripts and project/package/scene metadata were also inspected for repository-level risks. Scenes, prefabs, visuals, existing `.meta` files, packages and lockfiles were not changed. No scripts or folders were renamed/moved.
@@ -107,9 +167,9 @@ Each finding below is unresolved runtime/setup work, not a source audit pass:
 
 1. **Unity compilation/import/build has not run.** No compiler/editor is available. Review found no concrete project API mismatch, but package assemblies, native API signatures and serialization must compile in pinned Unity and a player build.
 2. Input System and Unity UI are declared; direct manifest versions match the lockfile. Registry access, Unity/platform compatibility and existing AI/GDK/legacy analytics/IAP package behavior remain unverified. The wrappers do not use those SDKs, but installed packages can affect import/build.
-3. MainGame is absent from the enabled build list; only SampleScene is included. Reload/next-level fail until the scene list is configured. Build-index progression may enter an unintended scene if a menu/utility scene is interleaved.
-4. MainGame's current coin/obstacle/finish colliders are non-trigger, and the Player has no serialized Rigidbody. The required trigger/kinematic Rigidbody/layer setup is missing. Transform movement and autoSyncTransforms=false can miss thin triggers at high speed; test contacts across frame/physics rates.
-5. Most new scripts have no `.meta` files yet. Unity must generate them and scene components/references must be assigned; preserve existing Player/Camera GUIDs. This code is not a fully wired game. Check Missing Script components after import.
+3. MainGame is now enabled after SampleScene in the shared list; no next level follows. A profile override may differ and must be inspected. Build-index progression may enter an unintended scene if a menu/utility scene is interleaved.
+4. MainGame now contains trigger/kinematic Rigidbody setup from prior user verification. Transform movement and autoSyncTransforms=false can still miss thin triggers at high speed; test contacts across frame/physics rates and collider layer overrides.
+5. Runtime and Editor scripts now have committed `.meta` files. Preserve GUIDs and check Missing Script components/import behavior for the new tool. The architecture still requires additional managers/configuration/UI event connections; metadata alone is not complete integration.
 6. Same-object component guards do not prevent duplicate managers on different GameObjects, additive scenes, or repeated bootstrap creation. Shared PlayerPrefs does not synchronize each object's cached events/properties. Configure one intended service owner/lifetime; duplicate adapters can count runs/levels or grant ad currency multiple times.
 7. No general singleton/automatic persistent bootstrap is implemented. Game/Level/Score/UI are scene-owned. Making them persistent keeps stale Player/scene references or index -1; do not do this casually. Ads caps/cooldown reset when AdsManager is recreated and can be bypassed by multiple instances.
 8. Persistent pause owners require the explicit PauseManager references in loaders, or manual Resume before loading. Scene-local owners normally release on disable. An unrelated script/SDK writing timeScale must coordinate with the owner. There is no multi-reason pause stack; verify no-domain-reload editor sessions.
