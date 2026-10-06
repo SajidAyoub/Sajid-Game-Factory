@@ -9,7 +9,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 
 // Editor-only, user-invoked setup. Never loads or saves a scene automatically.
-public static class GameFactorySetup
+public static partial class GameFactorySetup
 {
     private const string MenuPath = "Tools/Sajid Game Factory/Setup Obstacle & Game Over";
     private const string FinishMenuPath = "Tools/Sajid Game Factory/Setup Finish Line & Level Progression";
