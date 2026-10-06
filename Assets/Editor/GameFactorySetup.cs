@@ -790,13 +790,19 @@ public static partial class GameFactorySetup
     {
         public int Errors;
         public int Warnings;
+        public bool Level1Mode;
+        public int Level1Issues;
         private readonly StringBuilder lines = new StringBuilder("GAME FACTORY VALIDATION\n\n");
         public void Pass(string text) => lines.AppendLine("PASS: " + text);
         public void Warning(string text) { Warnings++; lines.AppendLine("WARNING: " + text); }
+        public void Level1Warning(string text) { Level1Issues++; Warning(text); }
         public void Error(string text) { Errors++; lines.AppendLine("ERROR: " + text); }
         public void Log()
         {
-            lines.AppendLine("\n" + (Errors > 0 ? "CRITICAL ERRORS FOUND" : Warnings > 0 ? "SETUP INCOMPLETE" : "READY FOR PLAY TEST"));
+            string state = Errors > 0 ? "CRITICAL ERRORS FOUND" : Level1Mode
+                ? (Level1Issues > 0 ? "LEVEL 1 SETUP INCOMPLETE" : "READY FOR LEVEL 1 PLAY TEST")
+                : (Warnings > 0 ? "SETUP INCOMPLETE" : "READY FOR PLAY TEST");
+            lines.AppendLine("\n" + state);
             if (Errors > 0) Debug.LogError(lines.ToString());
             else if (Warnings > 0) Debug.LogWarning(lines.ToString());
             else Debug.Log(lines.ToString());
@@ -806,7 +812,7 @@ public static partial class GameFactorySetup
     [MenuItem(MenuRoot + "Validate Current Game Setup")]
     public static void ValidateCurrentGameSetup()
     {
-        var report = new ValidationReport();
+        var report = new ValidationReport { Level1Mode = true };
         Scene scene = SceneManager.GetActiveScene();
         if (!scene.IsValid() || !scene.isLoaded || scene.path != MainGameScenePath ||
             EditorApplication.isPlayingOrWillChangePlaymode || PrefabStageUtility.GetCurrentPrefabStage() != null)
@@ -834,6 +840,7 @@ public static partial class GameFactorySetup
             ValidateEconomy(scene, report);
             ValidateServices(scene, report);
             ValidateUI(scene, report);
+            ValidateLevel1(scene, report);
             foreach (Component external in ExternalManagerOwners(scene))
                 report.Error("Another loaded scene owns " + external.GetType().Name + "; resolve additive-scene ownership before setup/play testing.");
             report.Pass("Read-only inspection completed: no scene, asset, PlayerPrefs, gameplay method, provider or configuration mutation requested.");

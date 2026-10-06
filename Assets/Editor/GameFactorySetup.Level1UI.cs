@@ -100,14 +100,19 @@ public static partial class GameFactorySetup
         if (canvas == null)
         {
             canvas = Undo.AddComponent<Canvas>(canvasObject);
+            Undo.RecordObject(canvas, "Configure Level 1 canvas");
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        }
+        if (canvasObject.GetComponent<CanvasScaler>() == null)
+        {
             CanvasScaler scaler = Undo.AddComponent<CanvasScaler>(canvasObject);
+            Undo.RecordObject(scaler, "Configure scalable UI");
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1080, 1920);
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
             scaler.matchWidthOrHeight = 0.5f;
-            Undo.AddComponent<GraphicRaycaster>(canvasObject);
         }
+        if (canvasObject.GetComponent<GraphicRaycaster>() == null) Undo.AddComponent<GraphicRaycaster>(canvasObject);
         Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         if (font == null) throw new InvalidOperationException("Unity built-in LegacyRuntime font unavailable; no external font will be substituted.");
         UIManager ui = UniqueComponent(build.Scene, typeof(UIManager)) as UIManager;
@@ -121,8 +126,10 @@ public static partial class GameFactorySetup
             {
                 Stretch(panels[i].GetComponent<RectTransform>());
                 Image background = Undo.AddComponent<Image>(panels[i]);
+                Undo.RecordObject(background, "Style generated panel");
                 background.color = i == 1 ? new Color(0, 0, 0, 0) : new Color(0.035f, 0.05f, 0.09f, 0.92f);
                 background.raycastTarget = i != 1;
+                Undo.RecordObject(panels[i], "Set initial panel visibility");
                 panels[i].SetActive(i == 1);
             }
             SetLevel1Reference(ui, PanelFields[i], panels[i]);
@@ -181,6 +188,9 @@ public static partial class GameFactorySetup
             Undo.AddComponent<EventSystem>(item);
         }
         BaseInputModule[] modules = item.GetComponents<BaseInputModule>();
+        int activeModules = 0;
+        foreach (BaseInputModule module in modules) if (module.enabled) activeModules++;
+        if (activeModules > 1) throw new InvalidOperationException("Competing enabled UI input modules; preserve them and resolve ownership manually.");
         if (modules.Length == 0)
         {
             InputSystemUIInputModule input = Undo.AddComponent<InputSystemUIInputModule>(item);
@@ -194,15 +204,15 @@ public static partial class GameFactorySetup
     private static void ConfigurePersistentUIInput(InputSystemUIInputModule input)
     {
         string path = GeneratedFolder + "/UIInputActions.inputactions";
+        string absolute = System.IO.Path.Combine(Application.dataPath, path.Substring("Assets/".Length));
         InputActionAsset asset = AssetDatabase.LoadAssetAtPath<InputActionAsset>(path);
         if (asset == null)
         {
-            if (System.IO.File.Exists(path)) throw new InvalidOperationException("Existing UI actions failed import; file preserved for manual repair.");
+            if (System.IO.File.Exists(absolute)) throw new InvalidOperationException("Existing UI actions failed import; file preserved for manual repair.");
             var defaults = new DefaultInputActions();
             string json = defaults.asset.ToJson();
             UnityEngine.Object.DestroyImmediate(defaults.asset);
             // Export through the supported Input System JSON format, not Unity YAML.
-            string absolute = System.IO.Path.Combine(Application.dataPath, path.Substring("Assets/".Length));
             System.IO.File.WriteAllText(absolute, json);
             AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceSynchronousImport);
             asset = AssetDatabase.LoadAssetAtPath<InputActionAsset>(path);
@@ -240,6 +250,7 @@ public static partial class GameFactorySetup
 
     private static void Stretch(RectTransform rect)
     {
+        Undo.RecordObject(rect, "Stretch generated panel");
         rect.anchorMin = Vector2.zero; rect.anchorMax = Vector2.one;
         rect.offsetMin = Vector2.zero; rect.offsetMax = Vector2.zero;
         rect.localScale = Vector3.one;
@@ -247,6 +258,7 @@ public static partial class GameFactorySetup
 
     private static void Place(RectTransform rect, Vector2 position, Vector2 size, bool top = false)
     {
+        Undo.RecordObject(rect, "Lay out generated UI");
         rect.anchorMin = rect.anchorMax = top ? new Vector2(0, 1) : new Vector2(0.5f, 0.5f);
         rect.pivot = new Vector2(0.5f, 0.5f);
         rect.anchoredPosition = position; rect.sizeDelta = size;
@@ -259,6 +271,7 @@ public static partial class GameFactorySetup
         if (text == null)
         {
             text = Undo.AddComponent<Text>(item);
+            Undo.RecordObject(text, "Style generated text");
             text.font = font; text.fontSize = fontSize;
             text.color = Color.white; text.alignment = TextAnchor.MiddleCenter;
             text.raycastTarget = false; text.text = value;
@@ -275,11 +288,12 @@ public static partial class GameFactorySetup
     {
         GameObject item = OwnedChild(build, parent, name, "level1/button/" + parent.name + "/" + name, out bool created, true);
         Image image = item.GetComponent<Image>();
-        if (image == null) { image = Undo.AddComponent<Image>(item); image.color = new Color(0.85f, 0.58f, 0.12f, 0.97f); }
+        if (image == null) { image = Undo.AddComponent<Image>(item); Undo.RecordObject(image, "Style generated button"); image.color = new Color(0.85f, 0.58f, 0.12f, 0.97f); }
         Button button = item.GetComponent<Button>();
         if (button == null)
         {
             button = Undo.AddComponent<Button>(item);
+            Undo.RecordObject(button, "Assign button graphic");
             button.targetGraphic = image;
         }
         bool hud = parent.name == "GameplayHUDPanel";
@@ -324,5 +338,158 @@ public static partial class GameFactorySetup
         data.ApplyModifiedPropertiesWithoutUndo();
         Debug.Log("Level 1: audio clip placeholders are on Level1Presentation. Missing clips remain silent; no saved preferences/balances reset.", bridge);
         return bridge;
+    }
+
+    private static void ValidateLevel1(UnityEngine.SceneManagement.Scene scene, ValidationReport report)
+    {
+        foreach (string name in Level1RootNames)
+        {
+            GameObject root = UniqueNamedObject(scene, name);
+            if (root == null || !root.activeInHierarchy) report.Level1Warning("Missing/ambiguous/inactive " + name + "; run Build / Repair Level 1 Master.");
+            else report.Pass(name + " exists.");
+        }
+        GameObject environment = UniqueNamedObject(scene, "Level1_Environment");
+        if (environment != null)
+        {
+            if (environment.GetComponentsInChildren<Renderer>(true).Length == 0) report.Level1Warning("Level 1 environment geometry is missing.");
+            if (environment.transform.position != Vector3.zero || environment.transform.rotation != Quaternion.identity || environment.transform.lossyScale != Vector3.one)
+                report.Level1Warning("Customized environment root transform requires manual alignment review.");
+        }
+        GameObject player = UniqueNamedObject(scene, "Player");
+        if (player != null)
+        {
+            Transform proxy = player.transform.Find("RunnerProxy");
+            bool realModel = false;
+            foreach (Renderer renderer in player.GetComponentsInChildren<Renderer>(true))
+                if (renderer.enabled && renderer.GetComponentInParent<Level1GeneratedObject>() == null &&
+                    (renderer is SkinnedMeshRenderer || renderer.transform != player.transform || !PrimitiveRenderer(renderer))) realModel = true;
+            if (proxy == null && !realModel) report.Level1Warning("No runner proxy/real model detected.");
+            if (proxy != null)
+            {
+                if (proxy.GetComponent<SimpleRunnerVisual>() == null) report.Level1Warning("Runner proxy animation component missing.");
+                if (proxy.GetComponentsInChildren<Renderer>(true).Length < 6) report.Level1Warning("Runner proxy geometry incomplete.");
+                foreach (string part in new[] { "Torso", "Head", "LeftArm", "RightArm", "LeftLeg", "RightLeg" })
+                    if (proxy.Find(part) == null) report.Level1Warning("Runner proxy missing " + part + ".");
+            }
+        }
+        foreach (GameObject item in SceneObjects(scene))
+        {
+            if (item.name.StartsWith("Coin_", StringComparison.Ordinal))
+            {
+                Transform visual = item.transform.Find("CoinVisual");
+                CoinVisualAnimator animator = item.GetComponent<CoinVisualAnimator>();
+                if (visual == null || animator == null || ReadReference(animator, "visual") != visual)
+                    report.Level1Warning(item.name + " gold visual/child animation missing or mismatched.");
+                else if (visual.GetComponentsInChildren<Renderer>(true).Length == 0) report.Level1Warning(item.name + " gold mesh missing.");
+            }
+            if (item.name.StartsWith("Obstacle_", StringComparison.Ordinal) && item.transform.Find("ObstacleVisual") == null)
+                report.Level1Warning(item.name + " visual hazard band missing.");
+        }
+        GameObject finish = UniqueNamedObject(scene, "FinishLine");
+        if (finish == null || finish.transform.Find("FinishVisual") == null) report.Level1Warning("Finish visual gate missing.");
+        foreach (Component component in SceneComponents(scene, typeof(Level1GeneratedObject)))
+        {
+            if (component.GetComponentsInChildren<Collider>(true).Length > 0)
+                report.Error("Generated decoration contains a Collider: " + component.name + "; do not let presentation alter verified physics.");
+            foreach (Renderer renderer in component.GetComponentsInChildren<Renderer>(true))
+                if (renderer.sharedMaterial == null || renderer.sharedMaterial.shader == null) report.Level1Warning("Generated renderer missing material/shader: " + renderer.name);
+        }
+        Level1PresentationController bridge = UniqueComponent(scene, typeof(Level1PresentationController)) as Level1PresentationController;
+        if (SceneComponents(scene, typeof(Level1PresentationController)).Count > 1) report.Error("Duplicate Level 1 presentation adapters: duplicate event/VFX/UI delivery risk.");
+        if (bridge == null) { report.Level1Warning("Level1PresentationController missing; functional UI/VFX not connected."); return; }
+        if (!bridge.isActiveAndEnabled) report.Error("Level 1 bridge must live on an always-active object outside panels.");
+        foreach (Type type in new[] { typeof(GameManager), typeof(LevelManager), typeof(PauseManager), typeof(ScoreManager), typeof(SaveManager),
+            typeof(SettingsManager), typeof(RewardManager), typeof(AudioManager), typeof(UIManager), typeof(HUDController) })
+        {
+            string field = char.ToLowerInvariant(type.Name[0]) + type.Name.Substring(1);
+            if (type == typeof(HUDController)) field = "hudController";
+            if (type == typeof(UIManager)) field = "uiManager";
+            Component manager = UniqueComponent(scene, type);
+            CheckReference(bridge, field, manager, report, true);
+            if (manager is Behaviour behaviour && !behaviour.isActiveAndEnabled)
+                report.Error("Required Level 1 manager inactive: " + type.Name);
+        }
+        CheckReference(bridge, "player", player != null ? player.transform : null, report, true);
+        CheckReference(bridge, "finish", finish != null ? finish.transform : null, report, true);
+        SerializedProperty coinRefs = new SerializedObject(bridge).FindProperty("coins");
+        var actualCoins = SceneComponents(scene, typeof(Coin));
+        var wiredCoins = new System.Collections.Generic.HashSet<UnityEngine.Object>();
+        if (coinRefs == null || !coinRefs.isArray) report.Error("Bridge coin hook API incompatible.");
+        else
+        {
+            for (int i = 0; i < coinRefs.arraySize; i++)
+                if (!wiredCoins.Add(coinRefs.GetArrayElementAtIndex(i).objectReferenceValue)) report.Error("Duplicate bridge coin subscription entry.");
+            foreach (Component coin in actualCoins) if (!wiredCoins.Contains(coin)) report.Level1Warning("Coin feedback hook missing: " + coin.name);
+        }
+        foreach (string field in new[] { "rewardText", "gameOverScoreText", "gameOverBestText", "completeScoreText", "musicText", "sfxText", "vibrationText", "nextLevelButton" })
+        {
+            UnityEngine.Object target = ReadReference(bridge, field);
+            if (target == null) report.Level1Warning("Level 1 UI reference missing: " + field);
+            else if (target is Component component && component.gameObject.scene != scene) report.Error("Level 1 UI reference points outside MainGame: " + field);
+        }
+        UIManager ui = UniqueComponent(scene, typeof(UIManager)) as UIManager;
+        if (ui != null)
+            foreach (string field in PanelFields)
+                if (ReadReference(ui, field) == null) report.Level1Warning("Level 1 panel not assigned: " + field);
+        HUDController hud = UniqueComponent(scene, typeof(HUDController)) as HUDController;
+        if (hud != null)
+            foreach (string field in TextFields)
+            {
+                Text text = ReadReference(hud, field) as Text;
+                if (text == null || text.font == null || !text.enabled) report.Level1Warning("Level 1 HUD Text/font missing or disabled: " + field);
+            }
+        GameObject uiRoot = UniqueNamedObject(scene, "Level1_UI");
+        Canvas[] canvases = uiRoot != null ? uiRoot.GetComponentsInChildren<Canvas>(true) : new Canvas[0];
+        if (canvases.Length != 1 || SceneComponents(scene, typeof(Canvas)).Count != 1) report.Level1Warning("Level 1 needs exactly one Canvas under Level1_UI; custom Canvas ambiguity must be resolved manually.");
+        else
+        {
+            CanvasScaler scaler = canvases[0].GetComponent<CanvasScaler>();
+            if (!canvases[0].isActiveAndEnabled || canvases[0].renderMode != RenderMode.ScreenSpaceOverlay || scaler == null ||
+                scaler.uiScaleMode != CanvasScaler.ScaleMode.ScaleWithScreenSize || canvases[0].GetComponent<GraphicRaycaster>() == null)
+                report.Level1Warning("Level 1 Canvas/scaler/raycaster configuration incomplete.");
+            foreach (Transform panel in canvases[0].transform)
+                if (panel.GetComponent<Level1GeneratedObject>() != null && bridge.transform.IsChildOf(panel)) report.Error("Presentation bridge cannot be disabled by a UI panel.");
+            ValidateLevel1Buttons(canvases[0].transform, bridge, report);
+        }
+        var systems = SceneComponents(scene, typeof(EventSystem));
+        if (systems.Count != 1) report.Error("Level 1 requires exactly one EventSystem.");
+        else
+        {
+            InputSystemUIInputModule input = systems[0].GetComponent<InputSystemUIInputModule>();
+            if (input == null || !input.isActiveAndEnabled || input.point == null || input.leftClick == null || input.actionsAsset == null)
+                report.Error("UI Input System module/action references missing or disabled.");
+            StandaloneInputModule legacy = systems[0].GetComponent<StandaloneInputModule>();
+            if (legacy != null && legacy.enabled) report.Error("Enabled legacy UI input module conflicts with New Input System-only settings; disable it manually.");
+        }
+        foreach (string field in new[] { "coinCollectVFX", "playerHitVFX", "finishVFX" })
+        {
+            ParticleSystem effect = ReadReference(bridge, field) as ParticleSystem;
+            if (effect == null) report.Level1Warning("Missing Level 1 effect " + field);
+            else if (effect.main.playOnAwake || effect.main.loop || effect.main.simulationSpace != ParticleSystemSimulationSpace.World || effect.main.maxParticles > 128)
+                report.Level1Warning(field + " differs from the bounded manual/world-space burst contract.");
+        }
+        foreach (string field in new[] { "backgroundMusic", "coinSFX", "hitSFX", "finishSFX", "uiClickSFX" })
+            if (ReadReference(bridge, field) == null) report.Warning("Optional audio clip missing: " + field + "; silence is safe.");
+        report.Pass("Level 1 structural inspection performed without playing VFX, invoking buttons or editing generated assets.");
+        report.Pass("Optional missing audio, next level and shop/mission catalogs are warnings; they do not alone block Level 1 play-test readiness. Blocking Level 1 presentation gaps are tracked separately.");
+    }
+
+    private static void ValidateLevel1Buttons(Transform canvas, Level1PresentationController bridge, ValidationReport report)
+    {
+        string[] paths = { "GameplayHUDPanel/PauseButton", "PauseMenuPanel/ResumeButton", "PauseMenuPanel/RestartButton", "PauseMenuPanel/SettingsButton",
+            "GameOverPanel/RestartButton", "LevelCompletePanel/NextLevelButton", "LevelCompletePanel/RestartButton",
+            "SettingsPanel/MusicButton", "SettingsPanel/SFXButton", "SettingsPanel/VibrationButton", "SettingsPanel/BackButton" };
+        string[] methods = { "Pause", "Resume", "Restart", "OpenSettings", "Restart", "NextLevel", "Restart", "ToggleMusic", "ToggleSFX", "ToggleVibration", "CloseSettings" };
+        for (int i = 0; i < paths.Length; i++)
+        {
+            Transform item = canvas.Find(paths[i]);
+            Button button = item != null ? item.GetComponent<Button>() : null;
+            int matches = 0;
+            if (button != null)
+                for (int j = 0; j < button.onClick.GetPersistentEventCount(); j++)
+                    if (button.onClick.GetPersistentTarget(j) == bridge && button.onClick.GetPersistentMethodName(j) == methods[i] &&
+                        button.onClick.GetPersistentListenerState(j) != UnityEventCallState.Off) matches++;
+            if (matches != 1) report.Level1Warning("Missing/duplicate enabled button binding: " + paths[i] + " -> " + methods[i]);
+        }
     }
 }

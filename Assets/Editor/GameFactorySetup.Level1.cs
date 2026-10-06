@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -9,6 +10,58 @@ public static partial class GameFactorySetup
 {
     private const string GeneratedFolder = "Assets/GameFactory/Generated/Level1";
     private static readonly string[] Level1RootNames = { "Level1_Environment", "Level1_Visuals", "Level1_VFX", "Level1_UI" };
+
+    [MenuItem(MenuRoot + "Build / Repair Level 1 Master")]
+    public static void BuildOrRepairLevel1Master()
+    {
+        if (!TryGetSetupScene(out Scene scene)) return;
+        // Retain the existing dependency/physics/build workflow, not a second implementation.
+        SetupOrRepairEntireGame();
+        var preflight = new ValidationReport { Level1Mode = true };
+        ValidatePlayerAndCamera(scene, preflight);
+        ValidateContacts(scene, "Coin_", typeof(Coin), "scoreManager", typeof(ScoreManager), preflight);
+        ValidateContacts(scene, "Obstacle_", typeof(Obstacle), "gameManager", typeof(GameManager), preflight);
+        ValidateContacts(scene, "FinishLine", typeof(FinishLine), "levelManager", typeof(LevelManager), preflight);
+        foreach (Type type in new[] { typeof(GameManager), typeof(LevelManager), typeof(PauseManager), typeof(ScoreManager), typeof(SaveManager),
+            typeof(SettingsManager), typeof(RewardManager), typeof(AudioManager), typeof(UIManager), typeof(HUDController) })
+        {
+            Component owner = CheckManager(scene, type, preflight, true);
+            if (owner is Behaviour behaviour && !behaviour.isActiveAndEnabled) preflight.Error(type.Name + " must be active for the Level 1 bridge.");
+        }
+        if (UniqueNamedObject(scene, "FinishLine") == null) preflight.Error("A unique FinishLine is required for Level 1.");
+        if (preflight.Errors > 0) { preflight.Log(); return; }
+
+        Undo.IncrementCurrentGroup();
+        int group = Undo.GetCurrentGroup();
+        Undo.SetCurrentGroupName("Build / Repair Level 1 Master presentation");
+        var build = new Level1Build { Scene = scene };
+        try
+        {
+            GeneratedMaterials(build);
+            foreach (string name in Level1RootNames) build.Roots[name] = Level1Root(build, name);
+            PlayerVisual(build);
+            CoinVisuals(build);
+            EnvironmentVisuals(build);
+            ObstacleAndFinishVisuals(build);
+            LightingPresentation(build);
+            Level1PresentationController bridge = PresentationBridge(build);
+            Level1VFX(build, bridge);
+            Level1UI(build, bridge);
+            Undo.FlushUndoRecordObjects();
+            Undo.CollapseUndoOperations(group);
+            EditorSceneManager.MarkSceneDirty(scene);
+            Debug.Log("Level 1 presentation pass: created " + build.Created + ", reused " + build.Reused + ", skipped " + build.Skipped +
+                " hierarchy objects. See material/skip logs. Save the reviewed scene/profile and generated assets manually. Asset creation and earlier core/build passes are outside this scene Undo group.");
+        }
+        catch (Exception exception)
+        {
+            Debug.LogError("Level 1 partial failure: attempting scene Undo rollback. Generated assets remain for reuse; earlier core/build passes remain. Do not assume the vertical slice is complete.");
+            Debug.LogException(exception);
+            try { Undo.FlushUndoRecordObjects(); Undo.RevertAllDownToGroup(group); }
+            catch (Exception undoException) { Debug.LogException(undoException); }
+        }
+        ValidateCurrentGameSetup();
+    }
 
     private sealed class Level1Build
     {
@@ -24,7 +77,7 @@ public static partial class GameFactorySetup
     {
         var matches = SceneObjects(build.Scene).FindAll(item => item.name == name);
         if (matches.Count > 1) throw new InvalidOperationException("Ambiguous Level 1 container: " + name);
-        if (matches.Count == 1) { build.Reused++; return matches[0]; }
+        if (matches.Count == 1) { build.Reused++; Debug.Log("Level 1: reused container " + name + ".", matches[0]); return matches[0]; }
         var root = new GameObject(name);
         Undo.RegisterCreatedObjectUndo(root, "Create " + name);
         SceneManager.MoveGameObjectToScene(root, build.Scene);
@@ -49,12 +102,14 @@ public static partial class GameFactorySetup
             if (tag == null || tag.GenerationId != id)
                 throw new InvalidOperationException("Unowned object occupies generated name " + name + "; rename it or configure manually. Nothing will be replaced.");
             build.Reused++;
+            Debug.Log("Level 1: reused " + parent.name + "/" + name + "; existing edits preserved.", match);
             created = false;
             return match;
         }
         match = rect ? new GameObject(name, typeof(RectTransform)) : new GameObject(name);
         Undo.RegisterCreatedObjectUndo(match, "Create " + name);
         Undo.SetTransformParent(match.transform, parent, "Parent " + name);
+        Undo.RecordObject(match.transform, "Initialize generated transform");
         match.transform.localPosition = Vector3.zero;
         match.transform.localRotation = Quaternion.identity;
         match.transform.localScale = Vector3.one;
@@ -77,6 +132,7 @@ public static partial class GameFactorySetup
         if (!created && holder.transform.Find("Mesh") != null) return holder; // Preserve edited generated geometry/materials.
         if (created)
         {
+            Undo.RecordObject(holder.transform, "Align decorative primitive");
             holder.transform.localPosition = position;
             holder.transform.localScale = scale;
             holder.transform.localRotation = Quaternion.Euler(euler);
@@ -85,11 +141,14 @@ public static partial class GameFactorySetup
         mesh.name = "Mesh";
         Undo.RegisterCreatedObjectUndo(mesh, "Create decorative mesh");
         Undo.SetTransformParent(mesh.transform, holder.transform, "Parent decorative mesh");
+        Undo.RecordObject(mesh.transform, "Initialize decorative mesh transform");
         mesh.transform.localPosition = Vector3.zero;
         mesh.transform.localRotation = Quaternion.identity;
         mesh.transform.localScale = Vector3.one;
         foreach (Collider collider in mesh.GetComponents<Collider>()) Undo.DestroyObjectImmediate(collider);
-        mesh.GetComponent<Renderer>().sharedMaterial = material;
+        Renderer renderer = mesh.GetComponent<Renderer>();
+        Undo.RecordObject(renderer, "Assign decorative material");
+        renderer.sharedMaterial = material;
         return holder;
     }
 
@@ -135,6 +194,11 @@ public static partial class GameFactorySetup
             material.SetColor("_BaseColor", color);
             if (material.HasProperty("_Metallic")) material.SetFloat("_Metallic", metallic);
             if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", smoothness);
+            if (name == "GoldCoinMaterial" && material.HasProperty("_EmissionColor"))
+            {
+                material.SetColor("_EmissionColor", color * 0.12f);
+                material.EnableKeyword("_EMISSION");
+            }
             AssetDatabase.CreateAsset(material, path);
             Debug.Log("Level 1: created material " + path + ". Asset creation is not part of scene Undo.");
         }
@@ -189,7 +253,7 @@ public static partial class GameFactorySetup
         foreach (Renderer renderer in player.GetComponentsInChildren<Renderer>(true))
         {
             if (renderer.GetComponentInParent<Level1GeneratedObject>() != null) continue;
-            if (renderer is SkinnedMeshRenderer || (renderer.transform != player.transform && !PrimitiveRenderer(renderer)))
+            if (renderer is SkinnedMeshRenderer || renderer.transform != player.transform || !PrimitiveRenderer(renderer))
             { build.Skipped++; Debug.Log("Level 1: existing character model preserved; proxy skipped.", player); return; }
         }
         GameObject proxy = OwnedChild(build, player.transform, "RunnerProxy", "level1/player-proxy", out bool created);
@@ -198,6 +262,7 @@ public static partial class GameFactorySetup
         Bounds bounds = collider.bounds;
         if (created)
         {
+            Undo.RecordObject(proxy.transform, "Align runner proxy");
             proxy.transform.localPosition = player.transform.InverseTransformPoint(bounds.center);
             proxy.transform.localScale = InverseScale(player.transform);
         }
@@ -221,7 +286,7 @@ public static partial class GameFactorySetup
     private static Transform Limb(Level1Build build, Transform parent, string name, Vector3 position, float length, float width, Material material)
     {
         GameObject pivot = OwnedChild(build, parent, name, "level1/limb/" + name, out bool created);
-        if (created) pivot.transform.localPosition = position;
+        if (created) { Undo.RecordObject(pivot.transform, "Align limb pivot"); pivot.transform.localPosition = position; }
         Primitive(build, pivot.transform, "Sleeve", PrimitiveType.Capsule, Vector3.down * length * 0.5f, new Vector3(width, length * 0.5f, width), material);
         return pivot.transform;
     }
@@ -233,9 +298,12 @@ public static partial class GameFactorySetup
             GameObject visual = OwnedChild(build, coin.transform, "CoinVisual", "level1/coin-visual", out bool created);
             if (created)
             {
+                Undo.RecordObject(visual.transform, "Align coin visual");
                 visual.transform.localScale = InverseScale(coin.transform);
             }
-            Primitive(build, visual.transform, "GoldDisk", PrimitiveType.Cylinder, Vector3.zero, new Vector3(0.7f, 0.055f, 0.7f), build.Materials["GoldCoinMaterial"], new Vector3(90, 0, 0));
+            Collider trigger = coin.GetComponent<Collider>();
+            float diameter = trigger != null ? Mathf.Max(trigger.bounds.size.x, trigger.bounds.size.z) : 0.4f;
+            Primitive(build, visual.transform, "GoldDisk", PrimitiveType.Cylinder, Vector3.zero, new Vector3(diameter, 0.04f, diameter), build.Materials["GoldCoinMaterial"], new Vector3(90, 0, 0));
             CoinVisualAnimator animator = coin.GetComponent<CoinVisualAnimator>();
             if (animator == null)
             {
@@ -290,7 +358,7 @@ public static partial class GameFactorySetup
         GameObject finish = UniqueNamedObject(build.Scene, "FinishLine");
         if (finish == null) throw new InvalidOperationException("Missing/ambiguous FinishLine; no gameplay finish object is invented.");
         GameObject gate = OwnedChild(build, finish.transform, "FinishVisual", "level1/finish-visual", out bool gateCreated);
-        if (gateCreated) gate.transform.localScale = InverseScale(finish.transform);
+        if (gateCreated) { Undo.RecordObject(gate.transform, "Align finish gate"); gate.transform.localScale = InverseScale(finish.transform); }
         Primitive(build, gate.transform, "LeftPost", PrimitiveType.Cube, new Vector3(-5.4f, 1.6f, 0), new Vector3(0.3f, 3.2f, 0.3f), build.Materials["TrackAccentMaterial"]);
         Primitive(build, gate.transform, "RightPost", PrimitiveType.Cube, new Vector3(5.4f, 1.6f, 0), new Vector3(0.3f, 3.2f, 0.3f), build.Materials["TrackAccentMaterial"]);
         Primitive(build, gate.transform, "Banner", PrimitiveType.Cube, new Vector3(0, 3.3f, 0), new Vector3(11f, 0.5f, 0.3f), build.Materials["GoldCoinMaterial"]);
@@ -307,9 +375,11 @@ public static partial class GameFactorySetup
         if (created)
         {
             Light light = Undo.AddComponent<Light>(lightObject);
+            Undo.RecordObject(light, "Configure new directional light");
             light.type = LightType.Directional;
             light.intensity = 1.3f;
             light.shadows = LightShadows.Soft;
+            Undo.RecordObject(light.transform, "Aim new directional light");
             light.transform.localRotation = Quaternion.Euler(50, -35, 0);
         }
     }
@@ -318,6 +388,10 @@ public static partial class GameFactorySetup
     {
         bool changed = false;
         UnityEngine.Object existing = ReadReference(owner, field);
+        SerializedProperty property = new SerializedObject(owner).FindProperty(field);
+        if (property != null && property.propertyType == SerializedPropertyType.ObjectReference &&
+            property.objectReferenceValue == null && property.objectReferenceInstanceIDValue != 0)
+            throw new InvalidOperationException("Broken Level 1 reference requires manual repair: " + owner.GetType().Name + "." + field);
         if (existing != null && existing != value) throw new InvalidOperationException("Configured Level 1 reference differs: " + owner.GetType().Name + "." + field);
         SetReference(owner, field, value, ref changed);
     }

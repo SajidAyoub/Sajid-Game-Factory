@@ -267,6 +267,7 @@ public sealed class Level1PresentationController : MonoBehaviour
     private static void Burst(ParticleSystem effect, Vector3 position, int count)
     {
         if (effect == null || !effect.gameObject.activeInHierarchy) return;
+        if (!effect.isPlaying) effect.Play(false);
         // World-space particles keep previous bursts in place when another coin is collected.
         for (int i = 0; i < count; i++)
         {
