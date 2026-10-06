@@ -52,33 +52,42 @@ public static partial class GameFactorySetup
             material.renderQueue = (int)RenderQueue.Transparent;
             AssetDatabase.CreateAsset(material, path);
         }
-        SetLevel1Reference(bridge, "coinCollectVFX", MakeEffect(build, "CoinCollectVFX", new Color(1f, 0.75f, 0.1f), material));
-        SetLevel1Reference(bridge, "playerHitVFX", MakeEffect(build, "PlayerHitVFX", new Color(1f, 0.25f, 0.15f), material));
-        SetLevel1Reference(bridge, "finishVFX", MakeEffect(build, "FinishVFX", new Color(0.2f, 1f, 0.85f), material));
+        RunPresentationStep(build, "CoinCollectVFX", () => SetLevel1Reference(bridge, "coinCollectVFX", MakeEffect(build, "CoinCollectVFX", new Color(1f, 0.75f, 0.1f), material)));
+        RunPresentationStep(build, "PlayerHitVFX", () => SetLevel1Reference(bridge, "playerHitVFX", MakeEffect(build, "PlayerHitVFX", new Color(1f, 0.25f, 0.15f), material)));
+        RunPresentationStep(build, "FinishVFX", () => SetLevel1Reference(bridge, "finishVFX", MakeEffect(build, "FinishVFX", new Color(0.2f, 1f, 0.85f), material)));
     }
 
     private static ParticleSystem MakeEffect(Level1Build build, string name, Color color, Material material)
     {
+        RequirePresentationObject(material, "Particle material " + name);
+        if (material.shader == null) throw new InvalidOperationException("Particle shader unavailable: " + name);
         GameObject item = OwnedChild(build, build.Roots["Level1_VFX"].transform, name, "level1/vfx/" + name, out bool created);
-        ParticleSystem effect = item.GetComponent<ParticleSystem>();
-        if (effect != null) return effect;
-        effect = Undo.AddComponent<ParticleSystem>(item);
-        effect.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-        Undo.RecordObject(effect, "Configure Level 1 VFX");
-        var main = effect.main;
-        main.loop = false; main.playOnAwake = false; main.duration = 1f;
-        main.startLifetime = 0.65f; main.startSpeed = 0f; main.startSize = 0.16f;
-        main.startColor = color; main.maxParticles = 64;
-        main.simulationSpace = ParticleSystemSimulationSpace.World;
-        var emission = effect.emission; emission.enabled = false;
-        var shape = effect.shape; shape.enabled = false;
-        var collision = effect.collision; collision.enabled = false;
-        var lights = effect.lights; lights.enabled = false;
-        ParticleSystemRenderer renderer = item.GetComponent<ParticleSystemRenderer>();
-        Undo.RecordObject(renderer, "Configure VFX renderer");
-        renderer.sharedMaterial = material;
-        renderer.shadowCastingMode = ShadowCastingMode.Off;
-        renderer.receiveShadows = false;
+        bool newEffect = item.GetComponent<ParticleSystem>() == null;
+        ParticleSystem effect = EnsurePresentationComponent<ParticleSystem>(item);
+        bool newRenderer = item.GetComponent<ParticleSystemRenderer>() == null;
+        ParticleSystemRenderer renderer = EnsurePresentationComponent<ParticleSystemRenderer>(item);
+        effect = RequirePresentationObject(item.GetComponent<ParticleSystem>(), "ParticleSystem after renderer creation: " + name);
+        if (newEffect)
+        {
+            effect.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            RecordPresentationObject(effect, "Configure Level 1 VFX");
+            var main = effect.main;
+            main.loop = false; main.playOnAwake = false; main.duration = 1f;
+            main.startLifetime = 0.65f; main.startSpeed = 0f; main.startSize = 0.16f;
+            main.startColor = color; main.maxParticles = 64;
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+            var emission = effect.emission; emission.enabled = false;
+            var shape = effect.shape; shape.enabled = false;
+            var collision = effect.collision; collision.enabled = false;
+            var lights = effect.lights; lights.enabled = false;
+        }
+        if (newEffect || newRenderer || renderer.sharedMaterial == null || renderer.sharedMaterial.shader == null)
+        {
+            RecordPresentationObject(renderer, "Configure VFX renderer");
+            renderer.sharedMaterial = material;
+            renderer.shadowCastingMode = ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+        }
         return effect;
     }
 
@@ -99,20 +108,20 @@ public static partial class GameFactorySetup
         Canvas canvas = canvasObject.GetComponent<Canvas>();
         if (canvas == null)
         {
-            canvas = Undo.AddComponent<Canvas>(canvasObject);
-            Undo.RecordObject(canvas, "Configure Level 1 canvas");
+            canvas = EnsurePresentationComponent<Canvas>(canvasObject);
+            RecordPresentationObject(canvas, "Configure Level 1 canvas");
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
         }
         if (canvasObject.GetComponent<CanvasScaler>() == null)
         {
-            CanvasScaler scaler = Undo.AddComponent<CanvasScaler>(canvasObject);
-            Undo.RecordObject(scaler, "Configure scalable UI");
+            CanvasScaler scaler = EnsurePresentationComponent<CanvasScaler>(canvasObject);
+            RecordPresentationObject(scaler, "Configure scalable UI");
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1080, 1920);
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
             scaler.matchWidthOrHeight = 0.5f;
         }
-        if (canvasObject.GetComponent<GraphicRaycaster>() == null) Undo.AddComponent<GraphicRaycaster>(canvasObject);
+        if (canvasObject.GetComponent<GraphicRaycaster>() == null) EnsurePresentationComponent<GraphicRaycaster>(canvasObject);
         Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         if (font == null) throw new InvalidOperationException("Unity built-in LegacyRuntime font unavailable; no external font will be substituted.");
         UIManager ui = UniqueComponent(build.Scene, typeof(UIManager)) as UIManager;
@@ -125,11 +134,11 @@ public static partial class GameFactorySetup
             if (created)
             {
                 Stretch(panels[i].GetComponent<RectTransform>());
-                Image background = Undo.AddComponent<Image>(panels[i]);
-                Undo.RecordObject(background, "Style generated panel");
+                Image background = EnsurePresentationComponent<Image>(panels[i]);
+                RecordPresentationObject(background, "Style generated panel");
                 background.color = i == 1 ? new Color(0, 0, 0, 0) : new Color(0.035f, 0.05f, 0.09f, 0.92f);
                 background.raycastTarget = i != 1;
-                Undo.RecordObject(panels[i], "Set initial panel visibility");
+                RecordPresentationObject(panels[i], "Set initial panel visibility");
                 panels[i].SetActive(i == 1);
             }
             SetLevel1Reference(ui, PanelFields[i], panels[i]);
@@ -161,7 +170,7 @@ public static partial class GameFactorySetup
         SetLevel1Reference(bridge, "nextLevelButton", next);
         if (next.GetComponent<Level1GeneratedObject>() != null)
         {
-            Undo.RecordObject(next, "Disable unconfigured next level");
+            RecordPresentationObject(next, "Disable unconfigured next level");
             var enabled = new System.Collections.Generic.List<EditorBuildSettingsScene>();
             foreach (var entry in ReadActiveBuildScenesReadOnly()) if (entry != null && entry.enabled) enabled.Add(entry);
             int index = enabled.FindIndex(entry => entry.path == build.Scene.path);
@@ -185,7 +194,7 @@ public static partial class GameFactorySetup
         else
         {
             item = OwnedChild(build, build.Roots["Level1_UI"].transform, "Level1EventSystem", "level1/event-system", out bool created);
-            Undo.AddComponent<EventSystem>(item);
+            EnsurePresentationComponent<EventSystem>(item);
         }
         BaseInputModule[] modules = item.GetComponents<BaseInputModule>();
         int activeModules = 0;
@@ -193,8 +202,8 @@ public static partial class GameFactorySetup
         if (activeModules > 1) throw new InvalidOperationException("Competing enabled UI input modules; preserve them and resolve ownership manually.");
         if (modules.Length == 0)
         {
-            InputSystemUIInputModule input = Undo.AddComponent<InputSystemUIInputModule>(item);
-            Undo.RecordObject(input, "Assign built-in UI Input System actions");
+            InputSystemUIInputModule input = EnsurePresentationComponent<InputSystemUIInputModule>(item);
+            RecordPresentationObject(input, "Assign built-in UI Input System actions");
             ConfigurePersistentUIInput(input); // Existing project already requires Input System.
         }
         else if (item.GetComponent<InputSystemUIInputModule>() == null)
@@ -250,7 +259,7 @@ public static partial class GameFactorySetup
 
     private static void Stretch(RectTransform rect)
     {
-        Undo.RecordObject(rect, "Stretch generated panel");
+        RecordPresentationObject(rect, "Stretch generated panel");
         rect.anchorMin = Vector2.zero; rect.anchorMax = Vector2.one;
         rect.offsetMin = Vector2.zero; rect.offsetMax = Vector2.zero;
         rect.localScale = Vector3.one;
@@ -258,7 +267,7 @@ public static partial class GameFactorySetup
 
     private static void Place(RectTransform rect, Vector2 position, Vector2 size, bool top = false)
     {
-        Undo.RecordObject(rect, "Lay out generated UI");
+        RecordPresentationObject(rect, "Lay out generated UI");
         rect.anchorMin = rect.anchorMax = top ? new Vector2(0, 1) : new Vector2(0.5f, 0.5f);
         rect.pivot = new Vector2(0.5f, 0.5f);
         rect.anchoredPosition = position; rect.sizeDelta = size;
@@ -270,8 +279,8 @@ public static partial class GameFactorySetup
         Text text = item.GetComponent<Text>();
         if (text == null)
         {
-            text = Undo.AddComponent<Text>(item);
-            Undo.RecordObject(text, "Style generated text");
+            text = EnsurePresentationComponent<Text>(item);
+            RecordPresentationObject(text, "Style generated text");
             text.font = font; text.fontSize = fontSize;
             text.color = Color.white; text.alignment = TextAnchor.MiddleCenter;
             text.raycastTarget = false; text.text = value;
@@ -288,12 +297,12 @@ public static partial class GameFactorySetup
     {
         GameObject item = OwnedChild(build, parent, name, "level1/button/" + parent.name + "/" + name, out bool created, true);
         Image image = item.GetComponent<Image>();
-        if (image == null) { image = Undo.AddComponent<Image>(item); Undo.RecordObject(image, "Style generated button"); image.color = new Color(0.85f, 0.58f, 0.12f, 0.97f); }
+        if (image == null) { image = EnsurePresentationComponent<Image>(item); RecordPresentationObject(image, "Style generated button"); image.color = new Color(0.85f, 0.58f, 0.12f, 0.97f); }
         Button button = item.GetComponent<Button>();
         if (button == null)
         {
-            button = Undo.AddComponent<Button>(item);
-            Undo.RecordObject(button, "Assign button graphic");
+            button = EnsurePresentationComponent<Button>(item);
+            RecordPresentationObject(button, "Assign button graphic");
             button.targetGraphic = image;
         }
         bool hud = parent.name == "GameplayHUDPanel";
@@ -304,7 +313,7 @@ public static partial class GameFactorySetup
             if (button.onClick.GetPersistentTarget(i) == action.Target as UnityEngine.Object && button.onClick.GetPersistentMethodName(i) == action.Method.Name)
                 return button;
         if (count > 0) throw new InvalidOperationException("Custom button binding preserved on " + name + "; refusing to install competing navigation.");
-        Undo.RecordObject(button, "Bind Level 1 UI action");
+        RecordPresentationObject(button, "Bind Level 1 UI action");
         UnityEventTools.AddPersistentListener(button.onClick, action);
         RecordPrefabChange(button);
         return button;
@@ -316,7 +325,7 @@ public static partial class GameFactorySetup
         if (existing.Count > 1) throw new InvalidOperationException("Multiple Level1PresentationController owners; no duplicate subscriptions will be installed.");
         GameObject host = OwnedChild(build, build.Roots["Level1_UI"].transform, "Level1Presentation", "level1/presentation", out bool created);
         if (existing.Count == 1 && existing[0].gameObject != host) throw new InvalidOperationException("Custom presentation owner exists; configure it manually instead of adding another.");
-        Level1PresentationController bridge = host.GetComponent<Level1PresentationController>() ?? Undo.AddComponent<Level1PresentationController>(host);
+        Level1PresentationController bridge = EnsurePresentationComponent<Level1PresentationController>(host);
         foreach (Type type in new[] { typeof(GameManager), typeof(LevelManager), typeof(PauseManager), typeof(ScoreManager), typeof(SaveManager),
             typeof(SettingsManager), typeof(RewardManager), typeof(AudioManager), typeof(UIManager), typeof(HUDController) })
         {
@@ -332,7 +341,7 @@ public static partial class GameFactorySetup
         var coins = SceneComponents(build.Scene, typeof(Coin));
         var data = new SerializedObject(bridge);
         SerializedProperty array = data.FindProperty("coins");
-        Undo.RecordObject(bridge, "Assign scene coin hooks");
+        RecordPresentationObject(bridge, "Assign scene coin hooks");
         array.arraySize = coins.Count;
         for (int i = 0; i < coins.Count; i++) array.GetArrayElementAtIndex(i).objectReferenceValue = coins[i];
         data.ApplyModifiedPropertiesWithoutUndo();
@@ -391,8 +400,11 @@ public static partial class GameFactorySetup
         {
             if (component.GetComponentsInChildren<Collider>(true).Length > 0)
                 report.Error("Generated decoration contains a Collider: " + component.name + "; do not let presentation alter verified physics.");
+            foreach (MeshFilter filter in component.GetComponentsInChildren<MeshFilter>(true))
+                if (filter.sharedMesh == null || filter.sharedMesh.vertexCount == 0 || filter.GetComponent<MeshRenderer>() == null)
+                    report.Level1Warning("Generated mesh/renderer incomplete: " + filter.name + "; rerun presentation repair.");
             foreach (Renderer renderer in component.GetComponentsInChildren<Renderer>(true))
-                if (renderer.sharedMaterial == null || renderer.sharedMaterial.shader == null) report.Level1Warning("Generated renderer missing material/shader: " + renderer.name);
+                if (renderer == null || renderer.sharedMaterial == null || renderer.sharedMaterial.shader == null) report.Level1Warning("Generated renderer missing material/shader: " + (renderer != null ? renderer.name : "destroyed renderer"));
         }
         Level1PresentationController bridge = UniqueComponent(scene, typeof(Level1PresentationController)) as Level1PresentationController;
         if (SceneComponents(scene, typeof(Level1PresentationController)).Count > 1) report.Error("Duplicate Level 1 presentation adapters: duplicate event/VFX/UI delivery risk.");

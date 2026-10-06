@@ -49,7 +49,7 @@ public static partial class GameFactorySetup
     }
 
     private static GameObject FantasyBox(Level1Build build, Transform parent, string name, Vector3 position, Vector3 scale, string material, Vector3 euler = default(Vector3))
-        => Primitive(build, parent, name, PrimitiveType.Cube, position, scale, build.Materials[material], euler);
+        => Primitive(build, parent, name, PrimitiveType.Cube, position, scale, PresentationMaterial(build, material), euler);
 
     private static void RetireOwnedVisual(GameObject item, string expectedId)
     {
@@ -62,7 +62,7 @@ public static partial class GameFactorySetup
             if (!(component is Transform || component is MeshFilter || component is MeshRenderer ||
                   component is Level1GeneratedObject || component is SimpleRunnerVisual))
                 throw new InvalidOperationException("Custom component in old presentation; preserve and migrate manually: " + item.name);
-        Undo.RecordObject(item, "Retire legacy generated presentation");
+        RecordPresentationObject(item, "Retire legacy generated presentation");
         item.SetActive(false);
         RecordPrefabChange(item);
         Debug.Log("Fantasy: retired owned " + item.name + " without deleting it; Undo restores it.", item);
@@ -74,7 +74,7 @@ public static partial class GameFactorySetup
         string path = renderer.sharedMaterial != null ? AssetDatabase.GetAssetPath(renderer.sharedMaterial) : string.Empty;
         if (path != GeneratedFolder + "/" + previousName + ".mat")
         { Debug.Log("Fantasy: custom material preserved on " + renderer.name + ".", renderer); return; }
-        Undo.RecordObject(renderer, "Upgrade generated presentation material");
+        RecordPresentationObject(renderer, "Upgrade generated presentation material");
         renderer.sharedMaterial = replacement;
         RecordPrefabChange(renderer);
     }
@@ -92,7 +92,7 @@ public static partial class GameFactorySetup
         Bounds b = renderer.bounds;
         if (b.size.z < 10f || b.size.x < 10f || b.size.z > 500f || b.size.x > 100f)
             throw new InvalidOperationException("Ground dimensions outside the safe Level 1 presentation envelope; review manually.");
-        ReplaceKnownMaterial(renderer, "TrackMaterial", build.Materials["FantasyRoad"]);
+        ReplaceKnownMaterial(renderer, "TrackMaterial", PresentationMaterial(build, "FantasyRoad"));
         Transform root = group.transform;
         float top = b.max.y;
         float edge = b.extents.x - 0.35f;
@@ -108,7 +108,7 @@ public static partial class GameFactorySetup
             {
                 float z = Mathf.Lerp(b.min.z, b.max.z, (i + 0.25f) / 7f);
                 FantasyBox(build, root, side + "Post" + i, new Vector3(x, top + 0.7f, z), new Vector3(0.65f, 1.4f, 0.65f), "FantasyStone");
-                Primitive(build, root, side + "Crystal" + i, PrimitiveType.Cube, new Vector3(x, top + 1.5f, z), Vector3.one * 0.3f, build.Materials["FantasyCyan"], new Vector3(0, 45, 45));
+                Primitive(build, root, side + "Crystal" + i, PrimitiveType.Cube, new Vector3(x, top + 1.5f, z), Vector3.one * 0.3f, PresentationMaterial(build, "FantasyCyan"), new Vector3(0, 45, 45));
                 FantasyBox(build, root, side + "Support" + i, new Vector3(x, top - 4.5f, z), new Vector3(1.1f, 8f, 1.3f), "FantasyCliff");
             }
             for (int i = 0; i < 3; i++)
